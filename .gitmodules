@@ -1,3 +1,6 @@
 [submodule "arduino-pico"]
 	path = arduino-pico
 	url = https://github.com/earlephilhower/arduino-pico.git
+[submodule "external/Pico-PIO-USB"]
+	path = external/Pico-PIO-USB
+	url = https://github.com/sekigon-gonnoc/Pico-PIO-USB
