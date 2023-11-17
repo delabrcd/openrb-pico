@@ -16,6 +16,8 @@ endif()
 # Initialize the SDK
 pico_sdk_init()
 
+add_subdirectory(external)
+
 # Set your source files
 set(SOURCES
     src/main.cpp
@@ -25,7 +27,7 @@ set(SOURCES
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Link Arduino core libraries
-target_link_libraries(${PROJECT_NAME} pico_stdlib)
+target_link_libraries(${PROJECT_NAME} pico_stdlib pico_pio_usb)
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(${PROJECT_NAME})
