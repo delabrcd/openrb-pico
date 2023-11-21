@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pins_common.h"
+
 // Pin definitions taken from:
 //    https://learn.adafruit.com/assets/100337
 
