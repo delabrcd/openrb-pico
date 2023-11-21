@@ -1,33 +1,43 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Pull in SDK (must be before project)
+set(PICO_BOARD adafruit_feather_rp2040)
+set(PICO_SDK_PATH ${CMAKE_SOURCE_DIR}/external/pico-sdk)
+
 include(pico_sdk_import.cmake)
 
-project(RP2040_Arduino_Project C CXX ASM)
+project(openrb-pico C CXX ASM)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 
-if (PICO_SDK_VERSION_STRING VERSION_LESS "1.3.0")
-    message(FATAL_ERROR "Raspberry Pi Pico SDK version 1.3.0 (or later) required. Your version is ${PICO_SDK_VERSION_STRING}")
-endif()
 
-# Initialize the SDK
+set(PICO_PIO_USB_PATH external/Pico-PIO-USB)
+
+# SET TUSB_DEBUG
+set(LOG 3)
 pico_sdk_init()
 
 add_subdirectory(external)
+include_directories(inc)
 
-# Set your source files
 set(SOURCES
-    src/main.cpp
+    src/main.c
+    src/usb_descriptors.c
+    src/xbox_controller_driver.c
+    src/xbox_device_driver.c
+    src/xbox_one_protocol.c
+    src/wla_identifiers.c
+    # got this hack from PIO example to fix some missing dependencies - should be fixed in later PICO SDK versions
+    # https://github.com/sekigon-gonnoc/Pico-PIO-USB/blob/0f747aaa0c16f750bdfa2ba37ec25d6c8e1bc117/examples/host_hid_to_device_cdc/CMakeLists.txt#L8
+    ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/dcd_pio_usb.c
+    ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
 )
 
-# Create the executable
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# Link Arduino core libraries
-target_link_libraries(${PROJECT_NAME} pico_stdlib pico_pio_usb)
+target_compile_definitions(${PROJECT_NAME} PUBLIC -DCFG_TUSB_CONFIG_FILE="${CMAKE_SOURCE_DIR}/inc/custom_config.h")
 
-# create map/bin/hex file etc.
+target_link_libraries(${PROJECT_NAME} PUBLIC pico_pio_usb tinyusb_bsp tinyusb_host tinyusb_device)
+
 pico_add_extra_outputs(${PROJECT_NAME})
