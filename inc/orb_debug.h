@@ -1,10 +1,10 @@
 #ifndef ORB_DEBUG_H
 #define ORB_DEBUG_H
-#include <stdio.h>
 
-#define OPENRB_DEBUG_ENABLED
+// #define OPENRB_DEBUG_ENABLED
 
 #ifdef OPENRB_DEBUG_ENABLED
+#include <stdio.h>
 
 static inline void print_buf(uint8_t const *buf, uint32_t bufsize) {
     for (uint32_t i = 0; i < bufsize; i++) printf("%02X ", buf[i]);

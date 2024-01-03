@@ -34,6 +34,9 @@ typedef struct {
     uint16_t epin_size;
     uint16_t epout_size;
 
+    uint16_t VID;
+    uint16_t PID;
+
     CFG_TUH_MEM_ALIGN xbox_packet_t epin_buf;
     CFG_TUH_MEM_ALIGN xbox_packet_t epout_buf;
 } xbox_interface_t;
@@ -115,12 +118,7 @@ static bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr
 }
 #endif
 
-static bool xbox_valid_controller(uint8_t dev_addr, tusb_desc_interface_t const *desc_itf) {
-    TU_VERIFY(TUSB_CLASS_VENDOR_SPECIFIC == desc_itf->bInterfaceClass);
-
-    TU_VERIFY(desc_itf->bNumEndpoints >= 2);
-    uint16_t vid, pid;
-    tuh_vid_pid_get(dev_addr, &vid, &pid);
+static bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
     switch (vid) {
         case XBOX_VID1:
             switch (pid) {
@@ -139,6 +137,10 @@ static bool xbox_valid_controller(uint8_t dev_addr, tusb_desc_interface_t const 
             break;
     }
     return false;
+}
+
+static void wait_for_tx_complete(uint8_t dev_addr, uint8_t ep_out) {
+    while (usbh_edpt_busy(dev_addr, ep_out)) tuh_task();
 }
 
 bool xboxh_send_report(uint8_t daddr, uint8_t idx, const void *report, uint16_t len) {
@@ -196,7 +198,14 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
 
     TU_LOG_USBH("Trying XBOX Controller with Interface %u\r\n", desc_itf->bInterfaceNumber);
 
-    TU_VERIFY(xbox_valid_controller(dev_addr, desc_itf));
+    TU_VERIFY(TUSB_CLASS_VENDOR_SPECIFIC == desc_itf->bInterfaceClass);
+    TU_VERIFY(desc_itf->bNumEndpoints >= 2);
+
+    uint16_t vid, pid;
+    tuh_vid_pid_get(dev_addr, &vid, &pid);
+
+    TU_VERIFY(xbox_valid_controller(vid, pid));
+
 #if CFG_TUSB_DEBUG
     print_interface(desc_itf, dev_addr);
 #endif
@@ -227,24 +236,40 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
     }
     p_controller->itf_num = desc_itf->bInterfaceNumber;
     p_controller->daddr   = dev_addr;
+    p_controller->PID     = pid;
+    p_controller->VID     = vid;
     return true;
 }
+
+static const uint8_t xboxone_s_init[] = {0x05, 0x20, 0x00, 0x0f, 0x06};
+
+static const power_report_t power = {.data = {.frame = {.command  = CMD_POWER_MODE,
+                                                        .deviceId = 0,
+                                                        .type     = TYPE_REQUEST,
+                                                        .sequence = 0,
+                                                        .length   = 1},
+                                              .data  = 0}};
 
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     TU_LOG_USBH("XBOX Set Config addr: %02x interface: %d", daddr, itf_num);
 
-    power_report_t power = {.data = {.frame = {.command  = CMD_POWER_MODE,
-                                               .deviceId = 0,
-                                               .type     = TYPE_REQUEST,
-                                               .sequence = 0,
-                                               .length   = 1},
-                                     .data  = 0}};
+    xbox_interface_t *p_hid = get_xbox_itf(daddr, itf_num);
+    TU_VERIFY(p_hid);
 
     uint8_t idx = xbox_itf_get_index(daddr, itf_num);
     TU_ASSERT(xboxh_send_report(daddr, idx, power.buffer, sizeof(power)));
-    TU_ASSERT(xboxh_receive_report(daddr, idx));
+
+    wait_for_tx_complete(daddr, p_hid->ep_out);
+
+    if ((p_hid->PID == 0x02ea || p_hid->PID == 0x0b00 || p_hid->PID == 0x0b12)) {
+        TU_ASSERT(xboxh_send_report(daddr, idx, xboxone_s_init, sizeof(xboxone_s_init)));
+    }
+
+    usbh_driver_set_config_complete(daddr, itf_num);
+
     if (xboxh_mount_cb)
         xboxh_mount_cb(daddr, idx);
+    TU_ASSERT(xboxh_receive_report(daddr, idx));
     return true;
 }
 
@@ -284,15 +309,4 @@ void xboxh_close(uint8_t daddr) {
                 xboxh_umount_cb(daddr, i);
         }
     }
-}
-
-static usbh_class_driver_t const _xbox_controller_driver = {.init       = xboxh_init,
-                                                            .open       = xboxh_open,
-                                                            .set_config = xboxh_set_config,
-                                                            .xfer_cb    = xboxh_xfer_cb,
-                                                            .close      = xboxh_close};
-
-usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count) {
-    *driver_count = 1;
-    return &_xbox_controller_driver;
 }

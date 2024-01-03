@@ -10,4 +10,15 @@ typedef enum adapter_state_e {
     STATE_POWER_OFF,
 } adapter_state_t;
 
+#define ANNOUNCE_INTERVAL_MS 2000
+#define VELOCITY_THRESH 10
+#define TRIGGER_HOLD_MS 40
+#define ON_DELAY_MS 40
+
+#define ENDPOINT_DIR_OUT 0x00
+#define ENDPOINT_DIR_IN 0x80
+
+#define ADAPTER_OUT_INTERVAL 4
+#define ADAPTER_IN_INTERVAL 4
+
 #endif  // ADAPTER_H

@@ -126,25 +126,25 @@ typedef struct {
     uint8_t : 2;
 
     uint8_t : 3;
-    uint8_t padYellow : 1;
+    uint8_t pad_yellow : 1;
 
     uint8_t : 3;
-    uint8_t padRed : 1;
+    uint8_t pad_red : 1;
 
     uint8_t : 3;
-    uint8_t padGreen : 1;
+    uint8_t pad_green : 1;
 
     uint8_t : 3;
-    uint8_t padBlue : 1;
+    uint8_t pad_blue : 1;
 
     uint8_t : 3;
-    uint8_t cymbalBlue : 1;
+    uint8_t cymbal_blue : 1;
 
     uint8_t : 3;
-    uint8_t cymbalYellow : 1;
+    uint8_t cymbal_yellow : 1;
 
     uint8_t : 7;
-    uint8_t cymbalGreen : 1;
+    uint8_t cymbal_green : 1;
 
     uint8_t : 8;
     uint8_t : 8;
@@ -162,7 +162,9 @@ typedef struct {
 
         uint8_t buffer[XBOX_ONE_EP_MAXPKTSIZE];
     };
-    uint8_t length;
+    uint8_t  length;
+    uint32_t triggered_time;
+    uint8_t  handled;
 } __attribute__((packed)) xbox_packet_t;
 
 // static_assert(sizeof(xbox_packet_t) == XBOX_ONE_EP_MAXPKTSIZE, "Incorrect Xbox Packet Size");
@@ -171,8 +173,8 @@ uint8_t xboxp_get_size(const xbox_packet_t *packet);
 uint8_t get_sequence();
 
 int  fill_packet(const uint8_t *src, uint8_t n_src, xbox_packet_t *dest);
-void fill_drum_input_from_controller(const xbox_packet_t *controller_input, xbox_packet_t *wla_output,
-                                uint8_t player_id);
+void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
+                                     xbox_packet_t *wla_output, uint8_t player_id);
 
 #ifdef OPENRB_DEBUG_ENABLED
 const char *get_command_name(int cmd);

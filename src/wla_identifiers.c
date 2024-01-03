@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bsp/board_api.h"
 #include "pico/platform.h"
 #include "util.h"
 #include "xbox_one_protocol.h"
@@ -70,19 +71,24 @@ int identifiers_get_announce(xbox_packet_t *packet) {
     for (int i = 5; i <= 9; i++) {
         packet->buffer[i] = rand() % UINT8_MAX;
     }
+
     packet->frame.sequence = get_sequence();
     packet->length         = UTIL_NUM(wla_announce);
+    packet->triggered_time = 0;
+    packet->handled        = 0;
     return 0;
 }
 
 int identifiers_get(uint8_t sequence, xbox_packet_t *packet) {
     if (sequence > identifiers_get_n())
         return 1;
-
+    OPENRB_DEBUG("IDENTIFY SEQUENCE: %d\n", sequence);
     for (uint8_t i = 0; i < wla_indenfity_list[sequence].size; i++) {
         packet->buffer[i] = wla_indenfity_list[sequence].buffer[i];
     }
     packet->frame.sequence = get_sequence();
     packet->length         = wla_indenfity_list[sequence].size;
+    packet->triggered_time = board_millis();
+    packet->handled        = 0;
     return 0;
 }

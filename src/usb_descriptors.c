@@ -1,5 +1,6 @@
 #include "bsp/board_api.h"
 // #include "bsp/board.h"
+#include "adapter.h"
 #include "common/tusb_types.h"
 #include "device/usbd.h"
 #include "tusb.h"
@@ -14,12 +15,6 @@
 
 #define USB_CONFIG_ATTR_REMOTEWAKEUP 0x20
 #define USB_CONFIG_ATTR_RESERVED 0x80
-
-#define ENDPOINT_DIR_OUT 0x00
-#define ENDPOINT_DIR_IN 0x80
-
-#define ADAPTER_OUT_INTERVAL 4
-#define ADAPTER_IN_INTERVAL 4
 
 #define ADAPTER_IN_NUM (ENDPOINT_DIR_IN | 1)
 #define ADAPTER_OUT_NUM (ENDPOINT_DIR_OUT | 2)
@@ -261,9 +256,9 @@ char const *string_desc_arr[] = {
     (const char[]){0x09, 0x04},
     "Performance Designed Products",
     "Rock Band Wired Legacy Adapter for Xbox One",
-    "0000079C605C57B6",
+    "0000079C605C69B6",
     "Xbox Security Method 3, Version 1.00, © 2005 Microsoft Corporation. All rights reserved.",
-    "MSFT100"};
+    "MSFT100\x90"};
 
 static uint16_t _desc_str[128];
 
