@@ -1,12 +1,9 @@
-[submodule "arduino-pico"]
-	path = arduino-pico
-	url = https://github.com/earlephilhower/arduino-pico.git
 [submodule "external/Pico-PIO-USB"]
 	path = external/Pico-PIO-USB
-	url = https://github.com/sekigon-gonnoc/Pico-PIO-USB
+	url = https://github.com/delabrcd/Pico-PIO-USB.git
 [submodule "external/pico-sdk"]
 	path = external/pico-sdk
-	url = https://github.com/raspberrypi/pico-sdk.git
+	url = https://github.com/delabrcd/pico-sdk.git
 [submodule "external/usb_midi_host"]
 	path = external/usb_midi_host
-	url = https://github.com/rppicomidi/usb_midi_host.git
+	url = https://github.com/delabrcd/usb_midi_host.git
