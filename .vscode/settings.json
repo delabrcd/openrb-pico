@@ -1,5 +1,6 @@
 {
     "clangd.arguments": [
-        "--query-driver=/usr/bin/arm-none-eabi-*"
+        "--query-driver=/usr/bin/arm-none-eabi-*", 
+        "-header-insertion=never"
     ]
 }

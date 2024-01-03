@@ -54,8 +54,8 @@ extern "C" {
 #define CFG_TUSB_MCU OPT_MCU_RP2040
 #define CFG_TUSB_OS OPT_OS_PICO
 
-#define CFG_TUD_LOG_LEVEL 0
-#define CFG_TUH_LOG_LEVEL 2
+#define CFG_TUD_LOG_LEVEL 2
+#define CFG_TUH_LOG_LEVEL 0
 
 #define CFG_TUSB_MEM_SECTION
 #define CFG_TUSB_MEM_ALIGN TU_ATTR_ALIGNED(4)
@@ -68,17 +68,21 @@ extern "C" {
 // #define CFG_TUD_ENDOINT0_SIZE 64
 #define CFG_TUD_NUM_CONFIGURATIONS 1
 
-#define CFG_TUD_VENDOR 1
-#define CFG_TUD_VENDOR_RX_BUFSIZE 64
-#define CFG_TUD_VENDOR_TX_BUFSIZE 64
+// #define CFG_TUD_VENDOR 1
+// #define CFG_TUD_VENDOR_RX_BUFSIZE 64
+// #define CFG_TUD_VENDOR_TX_BUFSIZE 64
 
 #define CFG_TUD_XINPUT 1
 #define CFG_TUD_XINPUT_TX_BUFSIZE 64
 #define CFG_TUD_XINPUT_RX_BUFSIZE 64
 
+#define CFG_TUH_XINPUT 1
+#define CFG_TUH_DEVICE_MAX (2)
+
+// #define CFG_TUH_CDC 1
 // #define CFG_TUD_HID 1
 // #define CFG_TUD_NCM 1
-// #define CFG_TUD_HID 2
+// #define CFG_TUH_HID 2
 // #define CFG_TUD_HID_EP_BUFSIZE 64
 
 //--------------------------------------------------------------------
@@ -92,7 +96,6 @@ extern "C" {
 #define CFG_TUH_HUB 1
 
 // max device support (excluding hub device): 1 hub typically has 4 ports
-#define CFG_TUH_DEVICE_MAX (2)
 
 #ifdef __cplusplus
 }

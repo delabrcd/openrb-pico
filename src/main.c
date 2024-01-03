@@ -3,25 +3,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "adapter.h"
 #include "bsp/board_api.h"
-
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
 #include "hardware/gpio.h"
 #include "host/usbh.h"
+#include "packet_queue.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
-
-#include "identifiers.h"
-
 #include "pins_rp2040_usbh.h"
-
-#include "orb_debug.h"
 #include "pio_usb_configuration.h"
 #include "tusb.h"
+
+#include "adapter.h"
+#include "identifiers.h"
+#include "instruments.h"
+#include "orb_debug.h"
 #include "util.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
@@ -31,19 +30,12 @@
 
 #define FIRST_XBOX_CONTROLLER_IDX 0
 
-static volatile uint8_t         xbox_controller_idx  = UINT8_MAX;
-static volatile uint8_t         xbox_controller_addr = UINT8_MAX;
-static volatile adapter_state_t adapter_state        = STATE_NONE;
+volatile adapter_state_t adapter_state = STATE_NONE;
+
+static volatile uint8_t xbox_controller_idx  = UINT8_MAX;
+static volatile uint8_t xbox_controller_addr = UINT8_MAX;
 
 static xbox_packet_t out_packet;
-
-enum instruments_e {
-    FIRST_INSTRUMENT,
-    GUITAR_ONE = FIRST_INSTRUMENT,
-    GUITAR_TWO,
-    DRUMS,
-    N_INSTRUMENTS,
-};
 
 static volatile uint8_t connected_instruments[N_INSTRUMENTS] = {0, 0, 0};
 
@@ -56,8 +48,7 @@ const uint8_t __in_flash() instrument_notify[N_INSTRUMENTS][22] = {
      0x00, 0x72, 0x00, 0x75, 0x00, 0x6D, 0x00, 0x73, 0x00, 0x00, 0x00}};
 
 static inline bool xboxh_send(const xbox_packet_t *buffer) {
-    return xboxh_send_report(xbox_controller_addr, xbox_controller_idx, buffer,
-                             xboxp_get_size(buffer));
+    return xboxh_send_report(xbox_controller_addr, xbox_controller_idx, buffer, buffer->length);
 }
 
 void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
@@ -85,7 +76,7 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     OPENRB_DEBUG("IN FROM CONTROLLER: %s\r\n", get_command_name(data->frame.command));
     switch (adapter_state) {
         case STATE_AUTHENTICATING:
-            xboxd_send(data);
+            xbox_fifo_write(data);
             return;
         case STATE_POWER_OFF:
             return;
@@ -103,10 +94,10 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
                         out_packet.frame.sequence    = get_sequence();
                         out_packet.length            = UTIL_NUM(instrument_notify[DRUMS]);
                         connected_instruments[DRUMS] = 1;
-                        xboxd_send(&out_packet);
+                        xbox_fifo_write(&out_packet);
                     } else {
                         fill_drum_input_from_controller(data, &out_packet, DRUMS);
-                        xboxd_send(&out_packet);
+                        xbox_fifo_write(&out_packet);
                     }
                     break;
                 default:
@@ -124,18 +115,19 @@ void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t 
     OPENRB_DEBUG("Sent Controller %d bytes (%s)\r\n", ndata, get_command_name(data->frame.command));
 }
 
-static void HandlePacketAuth(const xbox_packet_t *packet) {
+static void handle_auth(const xbox_packet_t *packet) {
     if (packet->frame.command == CMD_AUTHENTICATE && packet->frame.length == 2 &&
         packet->buffer[3] == 2 && packet->buffer[4] == 1 && packet->buffer[5] == 0) {
-        // digitalWrite(LED_BUILTIN, HIGH);
+        gpio_put(PIN_LED, true);
         OPENRB_DEBUG("AUTHENTICATED!\r\n");
         adapter_state = STATE_RUNNING;
     }
+    printf("Sending controller %d bytes\n", packet->length);
     xboxh_send(packet);
     return;
 }
 
-static void HandlePacketIdentify(const xbox_packet_t *packet) {
+static void handle_identify(const xbox_packet_t *packet) {
     static uint8_t identify_sequence = 0;
     switch (packet->frame.command) {
         case CMD_IDENTIFY:
@@ -145,13 +137,13 @@ static void HandlePacketIdentify(const xbox_packet_t *packet) {
                 identify_sequence = 0;
             }
             identifiers_get(identify_sequence, &out_packet);
-            xboxd_send(&out_packet);
+            xbox_fifo_write(&out_packet);
             identify_sequence++;
             break;
         case CMD_AUTHENTICATE:
             OPENRB_DEBUG("Moving to Authenticate\r\n");
             adapter_state = STATE_AUTHENTICATING;
-            return HandlePacketAuth(packet);
+            return handle_auth(packet);
             break;
         default:
             break;
@@ -159,27 +151,21 @@ static void HandlePacketIdentify(const xbox_packet_t *packet) {
     return;
 }
 
-static void HandlePacketInit(const xbox_packet_t *packet) {
+static void handle_init(const xbox_packet_t *packet) {
     switch (packet->frame.command) {
         case CMD_IDENTIFY:
             OPENRB_DEBUG("Moving to Identify\r\n");
             adapter_state = STATE_IDENTIFYING;
-            return HandlePacketIdentify(packet);
+            return handle_identify(packet);
         default:
             break;
     }
 }
 
-static void HandlePacketRunning(const xbox_packet_t *packet) {
+static void handle_running(const xbox_packet_t *packet) {
     switch (packet->frame.command) {
         case CMD_POWER_MODE:
-            // if (packet.buf.buffer[sizeof(Frame)] == POWER_OFF) {
-            //     digitalWrite(LED_BUILTIN, LOW);
-            //     // TODO CDD - read more here https://www.gammon.com.au/power
-            //     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-            //     sleep_enable();
-            //     sleep_cpu();
-            // }
+            // TODO CDD - go to bed
             break;
         case CMD_ACKNOWLEDGE:
             xboxh_send(packet);
@@ -193,7 +179,8 @@ static void HandlePacketRunning(const xbox_packet_t *packet) {
                     }
                     out_packet.frame.sequence = get_sequence();
                     out_packet.length         = UTIL_NUM(instrument_notify[DRUMS]);
-                    xboxd_send(&out_packet);
+                    out_packet.triggered_time = board_millis();
+                    xbox_fifo_write(&out_packet);
                 }
             }
             break;
@@ -204,7 +191,8 @@ static void HandlePacketRunning(const xbox_packet_t *packet) {
                 }
                 out_packet.frame.sequence = get_sequence();
                 out_packet.length         = UTIL_NUM(instrument_notify[DRUMS]);
-                xboxd_send(&out_packet);
+                out_packet.triggered_time = board_millis();
+                xbox_fifo_write(&out_packet);
             }
             break;
         default:
@@ -213,40 +201,33 @@ static void HandlePacketRunning(const xbox_packet_t *packet) {
     return;
 }
 
-static void HandlePacket(const xbox_packet_t *packet) {
+static void handle_xboxd_packet(const xbox_packet_t *packet) {
     switch (adapter_state) {
         case STATE_NONE:
             return;
         case STATE_INIT:
-            return HandlePacketInit(packet);
+            return handle_init(packet);
         case STATE_IDENTIFYING:
-            return HandlePacketIdentify(packet);
+            return handle_identify(packet);
         case STATE_AUTHENTICATING:
-            return HandlePacketAuth(packet);
+            return handle_auth(packet);
         case STATE_RUNNING:
-            return HandlePacketRunning(packet);
+            return handle_running(packet);
         default:
             break;
     }
     return;
 }
 
-bool xboxd_packet_received_cb(uint8_t rhport, const uint8_t *buf, uint32_t xferred_bytes) {
+bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf, uint32_t xferred_bytes) {
     (void)rhport;
     if (xferred_bytes < sizeof(frame_t))
         return false;
 
-    const xbox_packet_t *p_packet = (xbox_packet_t *)buf;
-    // p_packet->length        = xferred_bytes;
-    // if (xferred_bytes < xboxp_get_size(p_packet))
-    //     return false;
-
-    HandlePacket(p_packet);
+    handle_xboxd_packet(buf);
     return true;
 }
 
-static void led_blinking_task(void);
-static void announce_task();
 
 static void configure_host() {
     gpio_init(PIN_5V_EN);
@@ -262,16 +243,16 @@ static void configure_host() {
 
 void core1_main() {
     configure_host();
-
     while (true) {
         tuh_task();
     }
 }
 
-int main() {
+static void init() {
     set_sys_clock_khz(120000, true);
 
     stdio_init_all();
+    xbox_fifo_init();
 
     gpio_init(PIN_LED);
     gpio_set_dir(PIN_LED, true);
@@ -280,32 +261,26 @@ int main() {
     multicore_launch_core1(core1_main);
 
     OPENRB_DEBUG("openrb debug...\r\n");
-    // tud_init(0);
+    tud_init(TUD_OPT_RHPORT);
+
+
+    memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
 
     adapter_state = STATE_INIT;
-    while (1) {
-        // tud_task();
-        // announce_task();
-        led_blinking_task();
+}
+
+extern void drum_task();
+static void announce_task();
+
+int main() {
+    init();
+    while (true) {
+        tud_task();
+        announce_task();
+        drum_task();
+        xboxd_send_task();
     }
 }
-
-static void led_blinking_task(void) {
-    const uint32_t  interval_ms = 2000;
-    static uint32_t start_ms    = 0;
-
-    static bool led_state = false;
-
-    // Blink every interval ms
-    if (board_millis() - start_ms < interval_ms)
-        return;  // not enough time
-    start_ms += interval_ms;
-
-    gpio_put(PIN_LED, led_state ? 1 : 0);
-    led_state = !led_state;  // toggle
-}
-
-#define ANNOUNCE_INTERVAL_MS 2000
 
 static void announce_task() {
     if (adapter_state != STATE_INIT)
@@ -316,7 +291,7 @@ static void announce_task() {
         if (xbox_controller_idx < UINT8_MAX) {
             OPENRB_DEBUG("ANNOUNCING\r\n");
             identifiers_get_announce(&out_packet);
-            xboxd_send(&out_packet);
+            xbox_fifo_write(&out_packet);
             last_announce_time = board_millis();
         }
     }

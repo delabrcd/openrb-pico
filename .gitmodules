@@ -7,3 +7,6 @@
 [submodule "external/pico-sdk"]
 	path = external/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git
+[submodule "external/usb_midi_host"]
+	path = external/usb_midi_host
+	url = https://github.com/rppicomidi/usb_midi_host.git

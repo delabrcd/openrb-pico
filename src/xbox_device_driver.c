@@ -1,3 +1,5 @@
+#include "adapter.h"
+#include "bsp/board_api.h"
 #include "orb_debug.h"
 #include "tusb_option.h"
 #include "xbox_one_protocol.h"
@@ -9,6 +11,7 @@
 #include "common/tusb_types.h"
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
+#include "packet_queue.h"
 #include "xbox_device_driver.h"
 
 // only need a fifo for sent packets
@@ -20,14 +23,7 @@ typedef struct {
     uint8_t ep_in;
     uint8_t ep_out;
 
-    // #if CFG_FIFO_MUTEX
-    //     osal_mutex_def_t tx_ff_mutex;
-    // #endif
-    //     tu_fifo_t tx_ff;
-
-    //     uint8_t tx_ff_buf[CFG_TUD_XINPUT_TX_BUFSIZE * XBOXD_N_BUF];
     CFG_TUSB_MEM_ALIGN xbox_packet_t epin_buf;
-
     CFG_TUSB_MEM_ALIGN xbox_packet_t epout_buf;
 } xinputd_interface_t;
 
@@ -62,10 +58,7 @@ static bool _xboxd_send(uint8_t itf, void const *report, uint8_t len) {
     uint8_t const        rhport   = 0;
     xinputd_interface_t *p_xinput = &_xinputd_itf[itf];
 
-    TU_VERIFY(usbd_edpt_claim(rhport, p_xinput->ep_in));
-
     len = tu_min8(len, CFG_TUD_XINPUT_TX_BUFSIZE);
-    memcpy(p_xinput->epin_buf.buffer, report, len);
 
     return usbd_edpt_xfer(TUD_OPT_RHPORT, p_xinput->ep_in, p_xinput->epin_buf.buffer, len);
 }
@@ -75,6 +68,23 @@ bool xboxd_send(const xbox_packet_t *packet) {
         return false;
 
     return _xboxd_send(0, packet->buffer, packet->length);
+}
+
+bool xboxd_send_task() {
+    TU_VERIFY(xbox_fifo_count());
+    TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
+    OPENRB_DEBUG("FIFO IS: %d\n", xbox_fifo_count());
+    xbox_packet_t *pkt = &_xinputd_itf[0].epin_buf;
+    if (pkt->handled) {
+        xbox_fifo_read(pkt);
+    }
+
+    OPENRB_DEBUG("sending %s size: %d\n", get_command_name(pkt->frame.command), pkt->length);
+
+    if (!xboxd_send(pkt))
+        usbd_edpt_release(0, !_xinputd_itf[0].ep_in);
+
+    return true;
 }
 
 //--------------------------------------------------------------------+
@@ -87,27 +97,18 @@ void xboxd_init(void) {
 void xboxd_reset(uint8_t rhport) {
     (void)rhport;
     tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
-    //     for (uint8_t i = 0; i < CFG_TUD_XINPUT; i++) {
-    //         xinputd_interface_t *p_itf = &_xinputd_itf[i];
-
-    //         tu_fifo_config(&p_itf->tx_ff, p_itf->tx_ff_buf, XBOXD_TX_FIFO_SIZE,
-    //                        CFG_TUD_XINPUT_TX_BUFSIZE, false);
-
-    // #if CFG_FIFO_MUTEX
-    //         tu_fifo_config_mutex(&p_itf->tx_ff, osal_mutex_create(&p_itf->tx_ff_mutex), NULL);
-    // #endif
-    //     }
+    _xinputd_itf[0].epin_buf.handled = 1;
 }
 
 uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint16_t max_len) {
     TU_VERIFY(TUSB_CLASS_VENDOR_SPECIFIC == itf_desc->bInterfaceClass);
     TU_VERIFY(itf_desc->bInterfaceProtocol == 0xD0);
 
-    // HACK!!!! our first interface is subclass 0x47 but following ones are 0xFF, this driver only
-    // supports the former but needs to trick TUSB into thinking that we support all 3 of them so we
-    // don't stall the endpoint in `process_control_requst` - I've only ever seen the xbox side
-    // driver try and switch to the other interfaces if there's something misconfigured with the
-    // first one so lets hope and pray we never need to use these
+    // HACK!!!! our first interface is subclass 0x47 but following ones are 0xFF, this driver
+    // only supports the former but needs to trick TUSB into thinking that we support all 3 of
+    // them so we don't stall the endpoint in `process_control_requst` - I've only ever seen the
+    // xbox side driver try and switch to the other interfaces if there's something
+    // misconfigured with the first one so lets hope and pray we never need to use these
     if (itf_desc->bInterfaceSubClass != 0x47) {
         uint16_t       drv_len = itf_desc->bLength;
         uint8_t const *p_desc  = (uint8_t const *)itf_desc;
@@ -184,6 +185,21 @@ bool xboxd_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t
     if (stage != CONTROL_STAGE_SETUP)
         return true;
 
+    if (request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE) {
+        if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
+            if (request->bRequest == TUSB_REQ_GET_INTERFACE) {
+                static uint8_t data[] = {0x00};
+                (tud_control_xfer(rhport, request, data, sizeof(data)));
+                return true;
+            }
+        } else {
+            if (request->bRequest == TUSB_REQ_SET_INTERFACE) {
+                (tud_control_status(rhport, request));
+                return true;
+            }
+        }
+    }
+
     if (request->bmRequestType_bit.type == TUSB_REQ_TYPE_VENDOR) {
         if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
             if (request->bRequest == 0x90) {
@@ -195,24 +211,9 @@ bool xboxd_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t
                     }
                 } else if (request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE) {
                     if (request->wIndex == 0x0005) {
-                        tud_control_status(rhport, request);
+                        // tud_control_status(rhport, request);
                         return true;
                     }
-                }
-            }
-        }
-    } else {
-        if (request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE) {
-            if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
-                if (request->bRequest == TUSB_REQ_GET_INTERFACE) {
-                    static uint8_t data[] = {0x00};
-                    (tud_control_xfer(rhport, request, data, sizeof(data)));
-                    return true;
-                }
-            } else {
-                if (request->bRequest == TUSB_REQ_SET_INTERFACE) {
-                    (tud_control_status(rhport, request));
-                    return true;
                 }
             }
         }
@@ -222,6 +223,7 @@ bool xboxd_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
                                 tusb_control_request_t const *request) {
+    TU_LOG_USBD("vendor request %d\r\n", stage);
     return xboxd_control_xfer_cb(rhport, stage, request);
 }
 
@@ -243,9 +245,10 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
         OPENRB_DEBUG("IN (%s): ", get_command_name(p_xinput->epout_buf.frame.command));
         OPENRB_DEBUG_BUF(p_xinput->epout_buf.buffer, xferred_bytes);
         OPENRB_DEBUG("\n");
+
         p_xinput->epout_buf.length = xferred_bytes;
         if (xboxd_packet_received_cb)
-            xboxd_packet_received_cb(rhport, p_xinput->epout_buf.buffer, xferred_bytes);
+            xboxd_packet_received_cb(rhport, &p_xinput->epout_buf, xferred_bytes);
         TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.buffer,
                                  sizeof(p_xinput->epout_buf.buffer)));
 
@@ -253,6 +256,7 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
         OPENRB_DEBUG("OUT (%s): ", get_command_name(p_xinput->epin_buf.frame.command));
         OPENRB_DEBUG_BUF(p_xinput->epin_buf.buffer, xferred_bytes);
         OPENRB_DEBUG("\n");
+        p_xinput->epin_buf.handled = 1;
     }
     return true;
 }
