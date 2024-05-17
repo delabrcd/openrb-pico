@@ -7,41 +7,41 @@
 #include "orb_debug.h"
 
 enum frame_command_e {
-    CMD_ACKNOWLEDGE   = 0x01,
-    CMD_ANNOUNCE      = 0x02,
-    CMD_STATUS        = 0x03,
-    CMD_IDENTIFY      = 0x04,
-    CMD_POWER_MODE    = 0x05,
-    CMD_AUTHENTICATE  = 0x06,
-    CMD_GUIDE_BTN     = 0x07,
-    CMD_AUDIO_CONFIG  = 0x08,
-    CMD_RUMBLE        = 0x09,
-    CMD_LED_MODE      = 0x0a,
-    CMD_SERIAL_NUM    = 0x1e,
-    CMD_INPUT         = 0x20,
+    CMD_ACKNOWLEDGE = 0x01,
+    CMD_ANNOUNCE = 0x02,
+    CMD_STATUS = 0x03,
+    CMD_IDENTIFY = 0x04,
+    CMD_POWER_MODE = 0x05,
+    CMD_AUTHENTICATE = 0x06,
+    CMD_GUIDE_BTN = 0x07,
+    CMD_AUDIO_CONFIG = 0x08,
+    CMD_RUMBLE = 0x09,
+    CMD_LED_MODE = 0x0a,
+    CMD_SERIAL_NUM = 0x1e,
+    CMD_INPUT = 0x20,
     CMD_AUDIO_SAMPLES = 0x60,
 };
 
 enum frame_type_e {
     TYPE_COMMAND = 0x00,
-    TYPE_ACK     = 0x01,
+    TYPE_ACK = 0x01,
     TYPE_REQUEST = 0x02,
 };
 
 enum power_mode_e {
-    POWER_ON    = 0x00,
+    POWER_ON = 0x00,
     POWER_SLEEP = 0x01,
-    POWER_OFF   = 0x04,
+    POWER_OFF = 0x04,
 };
 
 enum led_mode_e {
-    LED_OFF        = 0x00,
-    LED_ON         = 0x01,
+    LED_OFF = 0x00,
+    LED_ON = 0x01,
     LED_BLINK_FAST = 0x02,
-    LED_BLINK_MED  = 0x03,
+    LED_BLINK_MED = 0x03,
     LED_BLINK_SLOW = 0x04,
-    LED_FADE_SLOW  = 0x08,
-    LED_FADE_FAST  = 0x09,
+    LED_FADE_SLOW = 0x08,
+    LED_FADE_FAST = 0x09,
 };
 
 /* Xbox One data taken from descriptors */
@@ -84,10 +84,10 @@ typedef struct {
 
     uint16_t triggerLeft;
     uint16_t triggerRight;
-    int16_t  stickLeftX;
-    int16_t  stickLeftY;
-    int16_t  stickRightX;
-    int16_t  stickRightY;
+    int16_t stickLeftX;
+    int16_t stickLeftY;
+    int16_t stickRightX;
+    int16_t stickRightY;
 
 } __attribute__((packed)) xb_one_controller_input_pkt_t;
 
@@ -154,17 +154,17 @@ typedef struct {
 
 typedef struct {
     union {
-        frame_t                              frame;
+        frame_t frame;
         xb_one_wireless_legacy_adapter_pkt_t wla_header;
-        power_report_t                       power;
-        xb_one_controller_input_pkt_t        controller_input;
-        xb_one_drum_input_pkt_t              drum_input;
+        power_report_t power;
+        xb_one_controller_input_pkt_t controller_input;
+        xb_one_drum_input_pkt_t drum_input;
 
         uint8_t buffer[XBOX_ONE_EP_MAXPKTSIZE];
     };
-    uint8_t  length;
+    uint8_t length;
     uint32_t triggered_time;
-    uint8_t  handled;
+    uint8_t handled;
 } __attribute__((packed)) xbox_packet_t;
 
 // static_assert(sizeof(xbox_packet_t) == XBOX_ONE_EP_MAXPKTSIZE, "Incorrect Xbox Packet Size");
@@ -172,7 +172,6 @@ typedef struct {
 uint8_t xboxp_get_size(const xbox_packet_t *packet);
 uint8_t get_sequence();
 
-int  fill_packet(const uint8_t *src, uint8_t n_src, xbox_packet_t *dest);
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
                                      xbox_packet_t *wla_output, uint8_t player_id);
 

@@ -3,11 +3,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "adapter.h"
 #include "bsp/board_api.h"
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
 #include "hardware/gpio.h"
 #include "host/usbh.h"
+#include "identifiers.h"
+#include "instruments.h"
+#include "orb_debug.h"
 #include "packet_queue.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
@@ -16,11 +20,6 @@
 #include "pins_rp2040_usbh.h"
 #include "pio_usb_configuration.h"
 #include "tusb.h"
-
-#include "adapter.h"
-#include "identifiers.h"
-#include "instruments.h"
-#include "orb_debug.h"
 #include "util.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
@@ -32,7 +31,7 @@
 
 volatile adapter_state_t adapter_state = STATE_NONE;
 
-static volatile uint8_t xbox_controller_idx  = UINT8_MAX;
+static volatile uint8_t xbox_controller_idx = UINT8_MAX;
 static volatile uint8_t xbox_controller_addr = UINT8_MAX;
 
 static xbox_packet_t out_packet;
@@ -45,7 +44,8 @@ const uint8_t __in_flash() instrument_notify[N_INSTRUMENTS][22] = {
     {0x22, 0x00, 0x00, 0x12, 0x01, 0x01, 0x14, 0x30, 0x00, 0x87, 0x67,
      0x00, 0x75, 0x00, 0x69, 0x00, 0x74, 0x00, 0x61, 0x00, 0x72, 0x00},
     {0x22, 0x00, 0x00, 0x12, 0x02, 0x01, 0x1b, 0xad, 0x00, 0x88, 0x64,
-     0x00, 0x72, 0x00, 0x75, 0x00, 0x6D, 0x00, 0x73, 0x00, 0x00, 0x00}};
+     0x00, 0x72, 0x00, 0x75, 0x00, 0x6D, 0x00, 0x73, 0x00, 0x00, 0x00}
+};
 
 static inline bool xboxh_send(const xbox_packet_t *buffer) {
     return xboxh_send_report(xbox_controller_addr, xbox_controller_idx, buffer, buffer->length);
@@ -54,7 +54,7 @@ static inline bool xboxh_send(const xbox_packet_t *buffer) {
 void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
     OPENRB_DEBUG("Controller %d Connected\r\n", instance);
     if (xbox_controller_idx == UINT8_MAX) {
-        xbox_controller_idx  = instance;
+        xbox_controller_idx = instance;
         xbox_controller_addr = dev_addr;
     }
 }
@@ -63,16 +63,14 @@ void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
     (void)dev_addr;
     OPENRB_DEBUG("Controller %d Disconnected\r\n", instance);
     if (instance == xbox_controller_idx) {
-        xbox_controller_idx  = UINT8_MAX;
+        xbox_controller_idx = UINT8_MAX;
         xbox_controller_addr = UINT8_MAX;
     }
 }
 
 void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
-    if (idx != xbox_controller_idx)
-        return;
-    if (ndata < sizeof(frame_t))
-        return;
+    if (idx != xbox_controller_idx) return;
+    if (ndata < sizeof(frame_t)) return;
     OPENRB_DEBUG("IN FROM CONTROLLER: %s\r\n", get_command_name(data->frame.command));
     switch (adapter_state) {
         case STATE_AUTHENTICATING:
@@ -91,8 +89,10 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
                         for (uint8_t i = 0; i < UTIL_NUM(instrument_notify[DRUMS]); i++) {
                             out_packet.buffer[i] = instrument_notify[DRUMS][i];
                         }
-                        out_packet.frame.sequence    = get_sequence();
-                        out_packet.length            = UTIL_NUM(instrument_notify[DRUMS]);
+                        out_packet.frame.sequence = get_sequence();
+                        out_packet.length = UTIL_NUM(instrument_notify[DRUMS]);
+                        out_packet.handled = 0;
+                        out_packet.triggered_time = 0;
                         connected_instruments[DRUMS] = 1;
                         xbox_fifo_write(&out_packet);
                     } else {
@@ -112,6 +112,7 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
 void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
     (void)idx;
     (void)data;
+    (void)ndata;
     OPENRB_DEBUG("Sent Controller %d bytes (%s)\r\n", ndata, get_command_name(data->frame.command));
 }
 
@@ -178,8 +179,9 @@ static void handle_running(const xbox_packet_t *packet) {
                         out_packet.buffer[i] = instrument_notify[DRUMS][i];
                     }
                     out_packet.frame.sequence = get_sequence();
-                    out_packet.length         = UTIL_NUM(instrument_notify[DRUMS]);
-                    out_packet.triggered_time = board_millis();
+                    out_packet.length = UTIL_NUM(instrument_notify[DRUMS]);
+                    out_packet.triggered_time = 0;
+                    out_packet.handled = 0;
                     xbox_fifo_write(&out_packet);
                 }
             }
@@ -190,8 +192,9 @@ static void handle_running(const xbox_packet_t *packet) {
                     out_packet.buffer[i] = instrument_notify[DRUMS][i];
                 }
                 out_packet.frame.sequence = get_sequence();
-                out_packet.length         = UTIL_NUM(instrument_notify[DRUMS]);
-                out_packet.triggered_time = board_millis();
+                out_packet.length = UTIL_NUM(instrument_notify[DRUMS]);
+                out_packet.triggered_time = 0;
+                out_packet.handled = 0;
                 xbox_fifo_write(&out_packet);
             }
             break;
@@ -221,13 +224,11 @@ static void handle_xboxd_packet(const xbox_packet_t *packet) {
 
 bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf, uint32_t xferred_bytes) {
     (void)rhport;
-    if (xferred_bytes < sizeof(frame_t))
-        return false;
+    if (xferred_bytes < sizeof(frame_t)) return false;
 
     handle_xboxd_packet(buf);
     return true;
 }
-
 
 static void configure_host() {
     gpio_init(PIN_5V_EN);
@@ -235,16 +236,19 @@ static void configure_host() {
     gpio_put(PIN_5V_EN, 1);
 
     pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
-    pio_cfg.pin_dp                  = PIN_USB_HOST_DP;
+    pio_cfg.pin_dp = PIN_USB_HOST_DP;
 
     tuh_configure(HOST_CONTROLLER_ID, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
     tuh_init(HOST_CONTROLLER_ID);
 }
 
+extern void drum_task();
+
 void core1_main() {
     configure_host();
     while (true) {
         tuh_task();
+        drum_task();
     }
 }
 
@@ -263,13 +267,11 @@ static void init() {
     OPENRB_DEBUG("openrb debug...\r\n");
     tud_init(TUD_OPT_RHPORT);
 
-
     memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
 
     adapter_state = STATE_INIT;
 }
 
-extern void drum_task();
 static void announce_task();
 
 int main() {
@@ -277,14 +279,12 @@ int main() {
     while (true) {
         tud_task();
         announce_task();
-        drum_task();
         xboxd_send_task();
     }
 }
 
 static void announce_task() {
-    if (adapter_state != STATE_INIT)
-        return;
+    if (adapter_state != STATE_INIT) return;
 
     static unsigned long last_announce_time = 0;
     if ((board_millis() - last_announce_time) > ANNOUNCE_INTERVAL_MS) {

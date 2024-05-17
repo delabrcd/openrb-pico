@@ -59,6 +59,8 @@ static const identify_list_t wla_indenfity_list[] = {
     MAKE_ID(wla_identify5), MAKE_ID(wla_identify6), MAKE_ID(wla_identify7),
 };
 
+#undef MAKE_ID
+
 int identifiers_get_n() {
     return UTIL_NUM(wla_indenfity_list);
 }
@@ -88,7 +90,7 @@ int identifiers_get(uint8_t sequence, xbox_packet_t *packet) {
     }
     packet->frame.sequence = get_sequence();
     packet->length         = wla_indenfity_list[sequence].size;
-    packet->triggered_time = board_millis();
+    packet->triggered_time = 0;
     packet->handled        = 0;
     return 0;
 }
