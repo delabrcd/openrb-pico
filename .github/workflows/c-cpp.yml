@@ -1,0 +1,38 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set up toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-none-eabi cmake make
+    
+    - name: Set up Submodules
+      run: |
+        git submodule update --init
+        
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake ..
+
+    - name: Build project
+      run: |
+        cd build
+        make
+  
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: rp2040-build
+        path: build/*.uf2
