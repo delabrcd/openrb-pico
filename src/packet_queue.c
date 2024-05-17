@@ -35,7 +35,7 @@ void xbox_fifo_advance() {
     return tu_fifo_advance_read_pointer(&fifo.fifo, 1);
 }
 
-uint32_t xbox_fifo_write(xbox_packet_t *buffer) {
+uint32_t xbox_fifo_write(const xbox_packet_t *buffer) {
     return tu_fifo_write(&fifo.fifo, buffer);
 }
 

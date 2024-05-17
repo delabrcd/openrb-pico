@@ -1,40 +1,32 @@
 ;
 #include "xbox_one_protocol.h"
+
 #include <string.h>
+
 #include "orb_debug.h"
 
 static uint8_t sequence = 0;
 
-uint8_t get_sequence() {
-    return sequence++;
-}
+uint8_t get_sequence() { return sequence++; }
 
 uint8_t xboxp_get_size(const xbox_packet_t *packet) {
-    if (!packet)
-        return 0;
+    if (!packet) return 0;
     return packet->length;
 }
 
-int fill_packet(const uint8_t *src, uint8_t n_src, xbox_packet_t *dest) {
-    if (n_src > sizeof(dest->buffer))
-        return 0;
-    // packet->header.triggered_time = triggered_time;
-    // packet->header.length         = length;
-    memcpy(dest->buffer, src, n_src);
-    dest->frame.length = n_src - sizeof(frame_t);
-    return 1;
-}
-
-void fill_drum_input_from_controller(const xbox_packet_t *controller_input, xbox_packet_t *wla_output,
-                                uint8_t player_id) {
+void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
+                                     xbox_packet_t *wla_output, uint8_t player_id) {
     memset(wla_output->buffer, 0, sizeof(wla_output->buffer));
 
-    wla_output->length         = sizeof(xb_one_drum_input_pkt_t);
-    wla_output->frame.command  = controller_input->frame.command;
+    wla_output->handled = 0;
+    wla_output->triggered_time = 0;
+
+    wla_output->length = sizeof(xb_one_drum_input_pkt_t);
+    wla_output->frame.command = controller_input->frame.command;
     wla_output->frame.deviceId = controller_input->frame.deviceId;
-    wla_output->frame.type     = controller_input->frame.deviceId;
+    wla_output->frame.type = controller_input->frame.deviceId;
     wla_output->frame.sequence = get_sequence();
-    wla_output->frame.length   = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t);
+    wla_output->frame.length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t);
 
     wla_output->wla_header.playerId = player_id;
 
@@ -42,9 +34,9 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input, xbox
     wla_output->drum_input.dpadState2 = controller_input->controller_input.buttons.dpadState;
 
     wla_output->wla_header.coloredButtonState1 =
-        controller_input->controller_input.buttons.coloredButtonState;
+            controller_input->controller_input.buttons.coloredButtonState;
     wla_output->drum_input.coloredButtonState2 =
-        controller_input->controller_input.buttons.coloredButtonState;
+            controller_input->controller_input.buttons.coloredButtonState;
 
     wla_output->wla_header.select = controller_input->controller_input.buttons.select;
     wla_output->drum_input.select = controller_input->controller_input.buttons.select;

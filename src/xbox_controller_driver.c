@@ -285,6 +285,8 @@ bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_
     if (dir == TUSB_DIR_IN) {
         TU_LOG_USBH("  Get Report callback (%u, %u)\r\n", daddr, idx);
         p_controller->epin_buf.length = xferred_bytes;
+        p_controller->epin_buf.triggered_time = 0;
+        p_controller->epin_buf.handled = 0;
         if (xboxh_packet_received_cb)
             xboxh_packet_received_cb(idx, &p_controller->epin_buf, xferred_bytes);
 
