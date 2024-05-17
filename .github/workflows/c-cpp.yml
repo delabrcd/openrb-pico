@@ -16,9 +16,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc-arm-none-eabi cmake make
     
-    - name: Set up Submodules
-      run: |
-        git submodule update --init
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        submodules: true  # Initialize submodules
         
     - name: Configure CMake
       run: |
