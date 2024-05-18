@@ -14,6 +14,13 @@ uint8_t xboxp_get_size(const xbox_packet_t *packet) {
     return packet->length;
 }
 
+void init_packet(xbox_packet_t *pkt, uint32_t time, uint8_t length) {
+    pkt->frame.sequence = get_sequence();
+    pkt->triggered_time = time;
+    pkt->handled = 0;
+    pkt->length = length;
+}
+
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
                                      xbox_packet_t *wla_output, uint8_t player_id) {
     memset(wla_output->buffer, 0, sizeof(wla_output->buffer));
@@ -46,7 +53,7 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
     return;
 }
 
-#ifdef OPENRB_DEBUG_ENABLED
+#if OPENRB_DEBUG_ENABLED
 const char *get_command_name(int cmd) {
     switch (cmd) {
         case CMD_ACKNOWLEDGE:
