@@ -86,13 +86,10 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
                     return;
                 case CMD_INPUT:
                     if (!connected_instruments[DRUMS]) {
-                        for (uint8_t i = 0; i < UTIL_NUM(instrument_notify[DRUMS]); i++) {
-                            out_packet.buffer[i] = instrument_notify[DRUMS][i];
-                        }
-                        out_packet.frame.sequence = get_sequence();
-                        out_packet.length = UTIL_NUM(instrument_notify[DRUMS]);
-                        out_packet.handled = 0;
-                        out_packet.triggered_time = 0;
+                        memcpy(out_packet.buffer, instrument_notify[DRUMS],
+                               UTIL_NUM(instrument_notify[DRUMS]));
+                        init_packet(&out_packet, 0, UTIL_NUM(instrument_notify[DRUMS]));
+
                         connected_instruments[DRUMS] = 1;
                         xbox_fifo_write(&out_packet);
                     } else {
@@ -172,29 +169,20 @@ static void handle_running(const xbox_packet_t *packet) {
             xboxh_send(packet);
             break;
 
-        case 0x24:
+        case CMD_LIST_CONNECTED_INSTRUMENTS:
             for (int i = FIRST_INSTRUMENT; i < N_INSTRUMENTS; i++) {
-                if (connected_instruments[i]) {
-                    for (uint8_t i = 0; i < UTIL_NUM(instrument_notify[DRUMS]); i++) {
-                        out_packet.buffer[i] = instrument_notify[DRUMS][i];
-                    }
-                    out_packet.frame.sequence = get_sequence();
-                    out_packet.length = UTIL_NUM(instrument_notify[DRUMS]);
-                    out_packet.triggered_time = 0;
-                    out_packet.handled = 0;
-                    xbox_fifo_write(&out_packet);
-                }
+                if (!connected_instruments[i]) continue;
+
+                memcpy(out_packet.buffer, instrument_notify[i], UTIL_NUM(instrument_notify[i]));
+                init_packet(&out_packet, 0, UTIL_NUM(instrument_notify[i]));
+                xbox_fifo_write(&out_packet);
             }
             break;
-        case 0x21:
+        case CMD_LIST_INSTRUMENT:
             if (packet->buffer[4] < N_INSTRUMENTS) {
-                for (uint8_t i = 0; i < UTIL_NUM(instrument_notify[DRUMS]); i++) {
-                    out_packet.buffer[i] = instrument_notify[DRUMS][i];
-                }
-                out_packet.frame.sequence = get_sequence();
-                out_packet.length = UTIL_NUM(instrument_notify[DRUMS]);
-                out_packet.triggered_time = 0;
-                out_packet.handled = 0;
+                memcpy(out_packet.buffer, instrument_notify[packet->buffer[4]],
+                       UTIL_NUM(instrument_notify[packet->buffer[4]]));
+                init_packet(&out_packet, 0, UTIL_NUM(instrument_notify[packet->buffer[4]]));
                 xbox_fifo_write(&out_packet);
             }
             break;
@@ -248,7 +236,6 @@ void core1_main() {
     configure_host();
     while (true) {
         tuh_task();
-        drum_task();
     }
 }
 
@@ -280,6 +267,7 @@ int main() {
         tud_task();
         announce_task();
         xboxd_send_task();
+        drum_task();
     }
 }
 
