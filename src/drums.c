@@ -5,7 +5,7 @@
 
 #include "adapter.h"
 #include "bsp/board_api.h"
-#include "instruments.h"
+#include "instrument_manager.h"
 #include "midi.h"
 #include "packet_queue.h"
 #include "usb_midi_host.h"
@@ -145,6 +145,11 @@ void drum_task() {
         if (type == NoteOn) note_on(pending_msg[1], pending_msg[2]);
     }
 
+    while (serial_midi_read(pending_msg)) {
+        type = get_type_from_status(pending_msg[0]);
+        if (type == NoteOn) note_on(pending_msg[1], pending_msg[2]);
+    }
+
     current_time = board_millis();
     for (int out = 0; out < NUM_OUT; out++) {
         if (!drum_state.midi_output_states[out].triggered) {
@@ -184,6 +189,7 @@ void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t 
     if (drum_state.midi_dev_addr == 0) {
         // then no MIDI device is currently connected
         drum_state.midi_dev_addr = dev_addr;
+        connect_instrument(DRUMS);
     } else {
         OPENRB_DEBUG(
                 "A different USB MIDI Device is already connected.\r\nOnly one device at a time is "
@@ -199,6 +205,7 @@ void tuh_midi_umount_cb(uint8_t dev_addr, uint8_t instance) {
         drum_state.midi_dev_addr = 0;
         OPENRB_DEBUG("MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
                      instance);
+        disconnect_instrument(DRUMS);
     } else {
         OPENRB_DEBUG("Unused MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
                      instance);

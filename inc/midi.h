@@ -1,6 +1,8 @@
 #ifndef ORB_MIDI_H_
 #define ORB_MIDI_H_
 
+#include <stdint.h>
+
 typedef enum {
     InvalidType = 0x00,                      ///< For notifying errors
     NoteOff = 0x80,                          ///< Channel Message - Note Off
@@ -29,5 +31,8 @@ typedef enum {
     ActiveSensing = 0xFE,  ///< System Real Time - Active Sensing
     SystemReset = 0xFF,    ///< System Real Time - System Reset
 } midi_type_e;
+
+void serial_midi_init();
+int serial_midi_read(uint8_t* buf);
 
 #endif

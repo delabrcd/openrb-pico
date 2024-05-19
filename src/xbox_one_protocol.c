@@ -80,8 +80,10 @@ const char *get_command_name(int cmd) {
             return "CMD_SERIAL_NUM";
         case CMD_INPUT:
             return "CMD_INPUT";
-        case 0x22:
+        case CMD_ADD_PLAYER:
             return "CMD_ADD_PLAYER";
+        case CMD_DROP_PLAYER:
+            return "CMD_DROP_PLAYER";
         case CMD_AUDIO_SAMPLES:
             return "CMD_AUDIO_SAMPLES";
         default:
