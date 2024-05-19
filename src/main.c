@@ -1,30 +1,29 @@
+#include <bsp/board_api.h>
+#include <device/usbd.h>
+#include <hardware/gpio.h>
+#include <hardware/uart.h>
+#include <host/usbh.h>
+#include <pico/multicore.h>
+#include <pico/stdio.h>
+#include <pico/stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "adapter.h"
-#include "bsp/board_api.h"
-#include "device/usbd.h"
-#include "device/usbd_pvt.h"
-#include "hardware/gpio.h"
-#include "host/usbh.h"
+#include "drums.h"
+#include "hardware/dma.h"
 #include "identifiers.h"
-#include "instruments.h"
+#include "instrument_manager.h"
+#include "midi.h"
 #include "orb_debug.h"
 #include "packet_queue.h"
-#include "pico/bootrom.h"
-#include "pico/multicore.h"
-#include "pico/stdio.h"
-#include "pico/stdlib.h"
 #include "pins_rp2040_usbh.h"
 #include "pio_usb_configuration.h"
-#include "tusb.h"
-#include "util.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
 
-#define LANGUAGE_ID 0x0409
 #define HOST_CONTROLLER_ID 1
 
 #define FIRST_XBOX_CONTROLLER_IDX 0
@@ -35,17 +34,6 @@ static volatile uint8_t xbox_controller_idx = UINT8_MAX;
 static volatile uint8_t xbox_controller_addr = UINT8_MAX;
 
 static xbox_packet_t out_packet;
-
-static volatile uint8_t connected_instruments[N_INSTRUMENTS] = {0, 0, 0};
-
-const uint8_t __in_flash() instrument_notify[N_INSTRUMENTS][22] = {
-    {0x22, 0x00, 0x00, 0x12, 0x00, 0x01, 0x14, 0x30, 0x00, 0x87, 0x67,
-     0x00, 0x75, 0x00, 0x69, 0x00, 0x74, 0x00, 0x61, 0x00, 0x72, 0x00},
-    {0x22, 0x00, 0x00, 0x12, 0x01, 0x01, 0x14, 0x30, 0x00, 0x87, 0x67,
-     0x00, 0x75, 0x00, 0x69, 0x00, 0x74, 0x00, 0x61, 0x00, 0x72, 0x00},
-    {0x22, 0x00, 0x00, 0x12, 0x02, 0x01, 0x1b, 0xad, 0x00, 0x88, 0x64,
-     0x00, 0x72, 0x00, 0x75, 0x00, 0x6D, 0x00, 0x73, 0x00, 0x00, 0x00}
-};
 
 static inline bool xboxh_send(const xbox_packet_t *buffer) {
     return xboxh_send_report(xbox_controller_addr, xbox_controller_idx, buffer, buffer->length);
@@ -68,6 +56,21 @@ void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
     }
 }
 
+void handle_controller_packet_running(const xbox_packet_t *data) {
+    switch (data->frame.command) {
+        case CMD_GUIDE_BTN:
+            xbox_fifo_write(data);
+            break;
+
+        case CMD_INPUT:
+            fill_drum_input_from_controller(data, &out_packet, DRUMS);
+            xbox_fifo_write(&out_packet);
+            break;
+        default:
+            break;
+    }
+}
+
 void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
     if (idx != xbox_controller_idx) return;
     if (ndata < sizeof(frame_t)) return;
@@ -75,31 +78,11 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     switch (adapter_state) {
         case STATE_AUTHENTICATING:
             xbox_fifo_write(data);
-            return;
-        case STATE_POWER_OFF:
-            return;
+            break;
+        // case STATE_POWER_OFF:
+        //     break;
         case STATE_RUNNING:
-            switch (data->frame.command) {
-                case CMD_GUIDE_BTN:
-                    // frame->sequence = getSequence();
-                    // fillPacket(data, ndata, &out_packet);
-                    return;
-                case CMD_INPUT:
-                    if (!connected_instruments[DRUMS]) {
-                        memcpy(out_packet.buffer, instrument_notify[DRUMS],
-                               UTIL_NUM(instrument_notify[DRUMS]));
-                        init_packet(&out_packet, 0, UTIL_NUM(instrument_notify[DRUMS]));
-
-                        connected_instruments[DRUMS] = 1;
-                        xbox_fifo_write(&out_packet);
-                    } else {
-                        fill_drum_input_from_controller(data, &out_packet, DRUMS);
-                        xbox_fifo_write(&out_packet);
-                    }
-                    break;
-                default:
-                    break;
-            }
+            handle_controller_packet_running(data);
             break;
         default:
             break;
@@ -119,7 +102,10 @@ static void handle_auth(const xbox_packet_t *packet) {
         gpio_put(PIN_LED, true);
         OPENRB_DEBUG("AUTHENTICATED!\r\n");
         adapter_state = STATE_RUNNING;
+
+        notify_xbox_of_all_instruments();
     }
+
     printf("Sending controller %d bytes\n", packet->length);
     xboxh_send(packet);
     return;
@@ -170,21 +156,10 @@ static void handle_running(const xbox_packet_t *packet) {
             break;
 
         case CMD_LIST_CONNECTED_INSTRUMENTS:
-            for (int i = FIRST_INSTRUMENT; i < N_INSTRUMENTS; i++) {
-                if (!connected_instruments[i]) continue;
-
-                memcpy(out_packet.buffer, instrument_notify[i], UTIL_NUM(instrument_notify[i]));
-                init_packet(&out_packet, 0, UTIL_NUM(instrument_notify[i]));
-                xbox_fifo_write(&out_packet);
-            }
+            notify_xbox_of_all_instruments();
             break;
         case CMD_LIST_INSTRUMENT:
-            if (packet->buffer[4] < N_INSTRUMENTS) {
-                memcpy(out_packet.buffer, instrument_notify[packet->buffer[4]],
-                       UTIL_NUM(instrument_notify[packet->buffer[4]]));
-                init_packet(&out_packet, 0, UTIL_NUM(instrument_notify[packet->buffer[4]]));
-                xbox_fifo_write(&out_packet);
-            }
+            notify_xbox_of_single_instrumenty(packet->buffer[4]);
             break;
         default:
             break;
@@ -218,59 +193,6 @@ bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf, uint32_t
     return true;
 }
 
-static void configure_host() {
-    gpio_init(PIN_5V_EN);
-    gpio_set_dir(PIN_5V_EN, GPIO_OUT);
-    gpio_put(PIN_5V_EN, 1);
-
-    pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
-    pio_cfg.pin_dp = PIN_USB_HOST_DP;
-
-    tuh_configure(HOST_CONTROLLER_ID, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
-    tuh_init(HOST_CONTROLLER_ID);
-}
-
-extern void drum_task();
-
-void core1_main() {
-    configure_host();
-    while (true) {
-        tuh_task();
-    }
-}
-
-static void init() {
-    set_sys_clock_khz(120000, true);
-
-    stdio_init_all();
-    xbox_fifo_init();
-
-    gpio_init(PIN_LED);
-    gpio_set_dir(PIN_LED, true);
-
-    multicore_reset_core1();
-    multicore_launch_core1(core1_main);
-
-    OPENRB_DEBUG("openrb debug...\r\n");
-    tud_init(TUD_OPT_RHPORT);
-
-    memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
-
-    adapter_state = STATE_INIT;
-}
-
-static void announce_task();
-
-int main() {
-    init();
-    while (true) {
-        tud_task();
-        announce_task();
-        xboxd_send_task();
-        drum_task();
-    }
-}
-
 static void announce_task() {
     if (adapter_state != STATE_INIT) return;
 
@@ -282,5 +204,71 @@ static void announce_task() {
             xbox_fifo_write(&out_packet);
             last_announce_time = board_millis();
         }
+    }
+}
+
+static void configure_host() {
+    OPENRB_DEBUG("configuring usb host stack\r\n");
+    gpio_init(PIN_5V_EN);
+    gpio_set_dir(PIN_5V_EN, GPIO_OUT);
+    gpio_put(PIN_5V_EN, 1);
+
+    pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
+    pio_cfg.pin_dp = PIN_USB_HOST_DP;
+
+    // find an unused channel
+    pio_cfg.tx_ch = dma_claim_unused_channel(true);
+    dma_channel_unclaim(pio_cfg.tx_ch);
+    tuh_configure(HOST_CONTROLLER_ID, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
+    tuh_init(HOST_CONTROLLER_ID);
+    OPENRB_DEBUG("finished configuring usb host\r\n");
+}
+
+void core1_main() {
+    configure_host();
+    while (true) {
+        tuh_task();
+    }
+}
+
+#define UART_ID uart1
+#define UART_TX_PIN 24
+#define UART_RX_PIN 25
+
+static void init() {
+    set_sys_clock_khz(120000, true);
+
+    stdio_uart_init_full(UART_ID, 115200, UART_TX_PIN, UART_RX_PIN);
+    OPENRB_DEBUG("openrb debug console initialized...\r\n");
+
+    xbox_fifo_init();
+    OPENRB_DEBUG("finished initializing xbox fifo...\r\n");
+
+    gpio_init(PIN_LED);
+    gpio_set_dir(PIN_LED, true);
+
+    OPENRB_DEBUG("starting usb host stack\r\n");
+    multicore_reset_core1();
+    multicore_launch_core1(core1_main);
+
+    OPENRB_DEBUG("starting usb device stack\r\n");
+    tud_init(TUD_OPT_RHPORT);
+
+    serial_midi_init();
+    OPENRB_DEBUG("finished initializing serial midi...\r\n");
+
+    memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
+
+    adapter_state = STATE_INIT;
+    OPENRB_DEBUG("finished init, starting main process...\r\n");
+}
+
+int main() {
+    init();
+    while (true) {
+        tud_task();
+        announce_task();
+        xboxd_send_task();
+        drum_task();
     }
 }
