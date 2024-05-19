@@ -1,12 +1,13 @@
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "bsp/board_api.h"
+#include "orb_debug.h"
 #include "pico/platform.h"
 #include "util.h"
 #include "xbox_one_protocol.h"
+
+// clang-format off
 
 const uint8_t __in_flash() wla_announce[] = {
     0x02, 0x20, 0x01, 0x1C, 0x7e, 0xed, 0x82, 0x8b, 0xec, 0x97, 0x00, 0x00, 0x38, 0x07, 0x64, 0x41,
@@ -46,51 +47,42 @@ const uint8_t __in_flash() wla_identify6[] = {0x04, 0xB0, 0x01, 0x03, 0xA2, 0x02
 
 const uint8_t __in_flash() wla_identify7[] = {0x04, 0xA0, 0x01, 0x00, 0xA5, 0x02};
 
+// clang-format on
+
 typedef struct {
     const uint8_t *buffer;
-    uint8_t        size;
+    uint8_t size;
 } identify_list_t;
 
 #define MAKE_ID(pkt) \
     { pkt, UTIL_NUM(pkt) }
 
 static const identify_list_t wla_indenfity_list[] = {
-    MAKE_ID(wla_identify1), MAKE_ID(wla_identify2), MAKE_ID(wla_identify3), MAKE_ID(wla_identify4),
-    MAKE_ID(wla_identify5), MAKE_ID(wla_identify6), MAKE_ID(wla_identify7),
+        MAKE_ID(wla_identify1), MAKE_ID(wla_identify2), MAKE_ID(wla_identify3),
+        MAKE_ID(wla_identify4), MAKE_ID(wla_identify5), MAKE_ID(wla_identify6),
+        MAKE_ID(wla_identify7),
 };
 
 #undef MAKE_ID
 
-int identifiers_get_n() {
-    return UTIL_NUM(wla_indenfity_list);
-}
+int identifiers_get_n() { return UTIL_NUM(wla_indenfity_list); }
 
 int identifiers_get_announce(xbox_packet_t *packet) {
-    for (uint8_t i = 0; i < UTIL_NUM(wla_announce); i++) {
-        packet->buffer[i] = wla_announce[i];
-    }
+    memcpy(packet->buffer, wla_announce, UTIL_NUM(wla_announce));
 
     for (int i = 5; i <= 9; i++) {
         packet->buffer[i] = rand() % UINT8_MAX;
     }
 
-    packet->frame.sequence = get_sequence();
-    packet->length         = UTIL_NUM(wla_announce);
-    packet->triggered_time = 0;
-    packet->handled        = 0;
+    init_packet(packet, 0, UTIL_NUM(wla_announce));
     return 0;
 }
 
 int identifiers_get(uint8_t sequence, xbox_packet_t *packet) {
-    if (sequence > identifiers_get_n())
-        return 1;
+    if (sequence > identifiers_get_n()) return 1;
     OPENRB_DEBUG("IDENTIFY SEQUENCE: %d\n", sequence);
-    for (uint8_t i = 0; i < wla_indenfity_list[sequence].size; i++) {
-        packet->buffer[i] = wla_indenfity_list[sequence].buffer[i];
-    }
-    packet->frame.sequence = get_sequence();
-    packet->length         = wla_indenfity_list[sequence].size;
-    packet->triggered_time = 0;
-    packet->handled        = 0;
+
+    memcpy(packet->buffer, wla_indenfity_list[sequence].buffer, wla_indenfity_list[sequence].size);
+    init_packet(packet, 0, wla_indenfity_list[sequence].size);
     return 0;
 }
