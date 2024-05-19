@@ -19,6 +19,10 @@ enum frame_command_e {
     CMD_LED_MODE = 0x0a,
     CMD_SERIAL_NUM = 0x1e,
     CMD_INPUT = 0x20,
+    CMD_LIST_INSTRUMENT = 0x21,
+    CMD_ADD_PLAYER = 0x22,
+    CMD_DROP_PLAYER = 0x23,
+    CMD_LIST_CONNECTED_INSTRUMENTS = 0x24,
     CMD_AUDIO_SAMPLES = 0x60,
 };
 
@@ -172,10 +176,12 @@ typedef struct {
 uint8_t xboxp_get_size(const xbox_packet_t *packet);
 uint8_t get_sequence();
 
+void init_packet(xbox_packet_t *pkt, uint32_t time, uint8_t length);
+
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
                                      xbox_packet_t *wla_output, uint8_t player_id);
 
-#ifdef OPENRB_DEBUG_ENABLED
+#if OPENRB_DEBUG_ENABLED
 const char *get_command_name(int cmd);
 #endif
 

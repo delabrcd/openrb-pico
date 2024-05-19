@@ -1,9 +1,9 @@
 #ifndef ORB_DEBUG_H
 #define ORB_DEBUG_H
 
-// #define OPENRB_DEBUG_ENABLED
+#define OPENRB_DEBUG_ENABLED 0
 
-#ifdef OPENRB_DEBUG_ENABLED
+#if OPENRB_DEBUG_ENABLED
 #include <stdio.h>
 
 static inline void print_buf(uint8_t const *buf, uint32_t bufsize) {

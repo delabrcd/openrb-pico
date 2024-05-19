@@ -31,6 +31,8 @@ set(SOURCES
     src/xbox_device_driver.c
     src/xbox_one_protocol.c
     src/wla_identifiers.c
+    src/instrument_manager.c
+    src/midi.c
     # got this hack from PIO example to fix some missing dependencies - should be fixed in later PICO SDK versions
     # https://github.com/sekigon-gonnoc/Pico-PIO-USB/blob/0f747aaa0c16f750bdfa2ba37ec25d6c8e1bc117/examples/host_hid_to_device_cdc/CMakeLists.txt#L8
     ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/dcd_pio_usb.c
