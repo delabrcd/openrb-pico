@@ -189,7 +189,7 @@ void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t 
     if (drum_state.midi_dev_addr == 0) {
         // then no MIDI device is currently connected
         drum_state.midi_dev_addr = dev_addr;
-        connect_instrument(DRUMS);
+        connect_instrument(DRUMS, &drum_state.input_pkt);
     } else {
         OPENRB_DEBUG(
                 "A different USB MIDI Device is already connected.\r\nOnly one device at a time is "
@@ -205,7 +205,7 @@ void tuh_midi_umount_cb(uint8_t dev_addr, uint8_t instance) {
         drum_state.midi_dev_addr = 0;
         OPENRB_DEBUG("MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
                      instance);
-        disconnect_instrument(DRUMS);
+        disconnect_instrument(DRUMS, &drum_state.input_pkt);
     } else {
         OPENRB_DEBUG("Unused MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
                      instance);

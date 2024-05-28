@@ -1,6 +1,8 @@
 #include "adapter.h"
 #include "bsp/board_api.h"
+#include "hardware/gpio.h"
 #include "orb_debug.h"
+#include "pins_rp2040_usbh.h"
 #include "tusb_option.h"
 #include "xbox_one_protocol.h"
 
@@ -29,22 +31,12 @@ typedef struct {
 
 CFG_TUSB_MEM_SECTION static xinputd_interface_t _xinputd_itf[CFG_TUD_XINPUT];
 
-void xboxd_reset(uint8_t rhport);
-
 static xinputd_interface_t *find_new_itf(void) {
     for (uint8_t i = 0; i < CFG_TUD_XINPUT; i++) {
         if (_xinputd_itf[i].ep_in == 0 && _xinputd_itf[i].ep_out == 0) return &_xinputd_itf[i];
     }
 
     return NULL;
-}
-
-static inline uint8_t get_index_by_itfnum(uint8_t itf_num) {
-    for (uint8_t i = 0; i < CFG_TUD_XINPUT; i++) {
-        if (itf_num == _xinputd_itf[i].itf_num) return i;
-    }
-
-    return TUSB_INDEX_INVALID_8;
 }
 
 bool tud_xinput_n_ready(uint8_t itf) {
@@ -63,6 +55,9 @@ static bool _xboxd_send(uint8_t itf, uint8_t *report, uint8_t len) {
 bool xboxd_send(xbox_packet_t *packet) {
     if (!_xinputd_itf[0].ep_in) return false;
 
+    OPENRB_DEBUG("sending %s size: %d\r\n", get_command_name(packet->frame.command),
+                 packet->length);
+
     return _xboxd_send(0, packet->buffer, packet->length);
 }
 
@@ -76,22 +71,38 @@ bool xboxd_send_task() {
 
     TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
 
-    OPENRB_DEBUG("sending %s size: %d\n", get_command_name(pkt->frame.command), pkt->length);
-
-    if (!xboxd_send(pkt)) usbd_edpt_release(0, _xinputd_itf[0].ep_in);
-
+    if (!xboxd_send(pkt)) {
+        OPENRB_DEBUG("FAILED TO SEND %s\r\n", get_command_name(pkt->frame.command));
+        usbd_edpt_release(0, _xinputd_itf[0].ep_in);
+    }
     return true;
 }
 
 //--------------------------------------------------------------------+
 // USBD-CLASS API
 //--------------------------------------------------------------------+
-void xboxd_init(void) { xboxd_reset(TUD_OPT_RHPORT); }
+void xboxd_init(void) {
+    tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
+    _xinputd_itf[0].epin_buf.handled = 1;
+}
 
+extern volatile adapter_state_t adapter_state;
+extern void reset_controllers();
+
+// CDD NOTE - with my Pi Pico santroller & my active USB extension I see a bus reset often when i
+// plug it in. I'm assuming its just inrush but we gotta reset ourselves gracefully anyways to
+// recover - currently this doesn't work but should once the reset_controller function is fixed
 void xboxd_reset(uint8_t rhport) {
+    OPENRB_DEBUG("Resetting Device\r\n");
     (void)rhport;
     tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
     _xinputd_itf[0].epin_buf.handled = 1;
+
+    gpio_put(PIN_LED, false);
+    adapter_state = STATE_NONE;
+    xbox_fifo_clear();
+    reset_controllers();
+    adapter_state = STATE_INIT;
 }
 
 uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint16_t max_len) {
