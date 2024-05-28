@@ -9,9 +9,6 @@
 #include "orb_debug.h"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
-#include "xinput_host.h"
-
-// void guitar_task() { tuh_hid_receive_report(uint8_t dev_addr, uint8_t idx) }
 
 #define VENDOR(vid, ...)      \
     case vid: {               \
@@ -61,8 +58,11 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
             connect_instrument(GUITAR_TWO, &guitar_2_data.out_packet);
             guitar_2_data.dev_addr = dev_addr;
         } else {
+            OPENRB_DEBUG("Already have 2 guitars connected, can't add another...\r\n")
             return;
         }
+
+        // we need to request the first report
         if (!tuh_hid_receive_report(dev_addr, instance)) {
             OPENRB_DEBUG("Error: cannot request to receive report\r\n");
         }
@@ -107,11 +107,4 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     if (!tuh_hid_receive_report(dev_addr, instance)) {
         printf("Error: cannot request to receive report\r\n");
     }
-}
-
-void tuh_xinput_report_received_cb(uint8_t dev_addr, uint8_t instance,
-                                   xinputh_interface_t const *xid_itf, uint16_t len) {
-    OPENRB_DEBUG("Received XINPUT Report: ");
-    OPENRB_DEBUG_BUF(xid_itf->epin_buf, len);
-    OPENRB_DEBUG("\r\n");
 }
