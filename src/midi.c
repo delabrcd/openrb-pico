@@ -19,7 +19,7 @@ static volatile bool drums_connected = false;
 
 // 15 minutes
 static uint32_t serial_timeout_ms = 900000;
-
+static xbox_packet_t out_packet;
 static midi_type_e get_type_from_status(uint8_t status) {
     if ((status < 0x80) || (status == Undefined_F4) || (status == Undefined_F5) ||
         (status == Undefined_FD))
@@ -34,10 +34,11 @@ static midi_type_e get_type_from_status(uint8_t status) {
 
 void on_disconnect_timeout_cb() {
     if (drums_connected) {
-        disconnect_instrument(DRUMS);
+        disconnect_instrument(DRUMS, &out_packet);
         drums_connected = false;
     }
 }
+
 void setup_disconnect_timer() {
     alarm_number = hardware_alarm_claim_unused(true);
     hardware_alarm_set_callback(alarm_number, on_disconnect_timeout_cb);
@@ -86,7 +87,7 @@ int serial_midi_read(uint8_t* buf) {
 
         if (status_byte) {
             if (!drums_connected) {
-                connect_instrument(DRUMS);
+                connect_instrument(DRUMS, &out_packet);
                 drums_connected = true;
             }
             reset_disconnect_timer();

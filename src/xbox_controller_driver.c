@@ -1,10 +1,11 @@
-#include <stdbool.h>
-#include "common/tusb_verify.h"
-#include "tusb_option.h"
+#include "xbox_controller_driver.h"
 
+#include <stdbool.h>
+
+#include "common/tusb_verify.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
-#include "xbox_controller_driver.h"
+#include "tusb_option.h"
 
 // Official controllers
 #define XBOX_VID1 0x045E       // Microsoft Corporation
@@ -46,8 +47,7 @@ tu_static xbox_interface_t _xbox_itf[XBOX_MAX_CONTROLLERS];
 
 static xbox_interface_t *find_new_itf(void) {
     for (uint8_t i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
-        if (_xbox_itf[i].daddr == 0)
-            return &_xbox_itf[i];
+        if (_xbox_itf[i].daddr == 0) return &_xbox_itf[i];
     }
 
     return NULL;
@@ -75,8 +75,7 @@ uint8_t xbox_itf_get_index(uint8_t daddr, uint8_t itf_num) {
     for (uint8_t idx = 0; idx < XBOX_MAX_CONTROLLERS; idx++) {
         xbox_interface_t const *p_hid = &_xbox_itf[idx];
 
-        if (p_hid->daddr == daddr && p_hid->itf_num == itf_num)
-            return idx;
+        if (p_hid->daddr == daddr && p_hid->itf_num == itf_num) return idx;
     }
 
     return TUSB_INDEX_INVALID_8;
@@ -93,8 +92,8 @@ static bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr
     TU_LOG3("bInterfaceProtocol: %d\r\n", desc_itf->bInterfaceProtocol);
     TU_LOG3("iInterface: %d\r\n", desc_itf->iInterface);
 
-    uint8_t const *p_desc               = (uint8_t const *)desc_itf;
-    p_desc                              = tu_desc_next(p_desc);
+    uint8_t const *p_desc = (uint8_t const *)desc_itf;
+    p_desc = tu_desc_next(p_desc);
     tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
 
     for (int i = 0; i < desc_itf->bNumEndpoints; i++) {
@@ -111,7 +110,7 @@ static bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr
         TU_LOG3("\twMaxPacketSize: %d\r\n", desc_ep->wMaxPacketSize);
         TU_LOG3("\tbInterval: %d\r\n", desc_ep->bInterval);
 
-        p_desc  = tu_desc_next(p_desc);
+        p_desc = tu_desc_next(p_desc);
         desc_ep = (tusb_desc_endpoint_t const *)p_desc;
     }
     return true;
@@ -187,16 +186,14 @@ bool xboxh_receive_report(uint8_t daddr, uint8_t idx) {
     return true;
 }
 
-void xboxh_init(void) {
-    tu_memclr(_xbox_itf, sizeof(_xbox_itf));
-}
+void xboxh_init(void) { tu_memclr(_xbox_itf, sizeof(_xbox_itf)); }
 
 bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf,
                 uint16_t max_len) {
     (void)rhport;
     (void)max_len;
 
-    TU_LOG_USBH("Trying XBOX Controller with Interface %u\r\n", desc_itf->bInterfaceNumber);
+    // TU_LOG_USBH("Trying XBOX Controller with Interface %u\r\n", desc_itf->bInterfaceNumber);
 
     TU_VERIFY(TUSB_CLASS_VENDOR_SPECIFIC == desc_itf->bInterfaceClass);
     TU_VERIFY(desc_itf->bNumEndpoints >= 2);
@@ -212,8 +209,8 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
     xbox_interface_t *p_controller = find_new_itf();
     TU_ASSERT(p_controller);
 
-    uint8_t const *p_desc               = (uint8_t const *)desc_itf;
-    p_desc                              = tu_desc_next(p_desc);
+    uint8_t const *p_desc = (uint8_t const *)desc_itf;
+    p_desc = tu_desc_next(p_desc);
     tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
 
     for (int i = 0; i < desc_itf->bNumEndpoints; i++) {
@@ -222,33 +219,33 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
         if (tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_IN) {
             uint16_t pkt_size = tu_edpt_packet_size(desc_ep);
             TU_ASSERT(pkt_size == XBOX_ONE_EP_MAXPKTSIZE);
-            p_controller->ep_in     = desc_ep->bEndpointAddress;
+            p_controller->ep_in = desc_ep->bEndpointAddress;
             p_controller->epin_size = pkt_size;
         } else {
             uint16_t pkt_size = tu_edpt_packet_size(desc_ep);
             TU_ASSERT(pkt_size == XBOX_ONE_EP_MAXPKTSIZE);
-            p_controller->ep_out     = desc_ep->bEndpointAddress;
+            p_controller->ep_out = desc_ep->bEndpointAddress;
             p_controller->epout_size = pkt_size;
         }
 
-        p_desc  = tu_desc_next(p_desc);
+        p_desc = tu_desc_next(p_desc);
         desc_ep = (tusb_desc_endpoint_t const *)p_desc;
     }
     p_controller->itf_num = desc_itf->bInterfaceNumber;
-    p_controller->daddr   = dev_addr;
-    p_controller->PID     = pid;
-    p_controller->VID     = vid;
+    p_controller->daddr = dev_addr;
+    p_controller->PID = pid;
+    p_controller->VID = vid;
     return true;
 }
 
 static const uint8_t xboxone_s_init[] = {0x05, 0x20, 0x00, 0x0f, 0x06};
 
-static const power_report_t power = {.data = {.frame = {.command  = CMD_POWER_MODE,
+static const power_report_t power = {.data = {.frame = {.command = CMD_POWER_MODE,
                                                         .deviceId = 0,
-                                                        .type     = TYPE_REQUEST,
+                                                        .type = TYPE_REQUEST,
                                                         .sequence = 0,
-                                                        .length   = 1},
-                                              .data  = 0}};
+                                                        .length = 1},
+                                              .data = 0}};
 
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     TU_LOG_USBH("XBOX Set Config addr: %02x interface: %d", daddr, itf_num);
@@ -267,10 +264,20 @@ bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
 
     usbh_driver_set_config_complete(daddr, itf_num);
 
-    if (xboxh_mount_cb)
-        xboxh_mount_cb(daddr, idx);
+    if (xboxh_mount_cb) xboxh_mount_cb(daddr, idx);
     TU_ASSERT(xboxh_receive_report(daddr, idx));
     return true;
+}
+
+void reset_controllers() {
+    // TODO CDD - make this send the power OFF command first
+    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
+        if (_xbox_itf[i].daddr == 0) continue;
+
+        xbox_interface_t *p_hid = get_xbox_itf(_xbox_itf[i].daddr, _xbox_itf[0].itf_num);
+        xboxh_send_report(_xbox_itf[i].daddr, 0, power.buffer, sizeof(power));
+        wait_for_tx_complete(_xbox_itf[i].daddr, p_hid->ep_out);
+    }
 }
 
 bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
@@ -303,12 +310,10 @@ bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_
 void xboxh_close(uint8_t daddr) {
     for (uint8_t i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
         xbox_interface_t *p_controller = &_xbox_itf[i];
-        if (!p_controller)
-            continue;
+        if (!p_controller) continue;
         if (p_controller->daddr == daddr) {
             p_controller->daddr = 0;
-            if (xboxh_umount_cb)
-                xboxh_umount_cb(daddr, i);
+            if (xboxh_umount_cb) xboxh_umount_cb(daddr, i);
         }
     }
 }

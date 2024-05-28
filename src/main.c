@@ -103,7 +103,7 @@ static void handle_auth(const xbox_packet_t *packet) {
         OPENRB_DEBUG("AUTHENTICATED!\r\n");
         adapter_state = STATE_RUNNING;
 
-        notify_xbox_of_all_instruments();
+        notify_xbox_of_all_instruments(&out_packet);
     }
 
     printf("Sending controller %d bytes\n", packet->length);
@@ -156,10 +156,10 @@ static void handle_running(const xbox_packet_t *packet) {
             break;
 
         case CMD_LIST_CONNECTED_INSTRUMENTS:
-            notify_xbox_of_all_instruments();
+            notify_xbox_of_all_instruments(&out_packet);
             break;
         case CMD_LIST_INSTRUMENT:
-            notify_xbox_of_single_instrumenty(packet->buffer[4]);
+            notify_xbox_of_single_instrument(packet->buffer[4], &out_packet);
             break;
         default:
             break;
