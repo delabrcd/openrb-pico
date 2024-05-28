@@ -252,7 +252,7 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     return (uint8_t const *)&ConfigurationDescriptor;
 }
 
-char const *string_desc_arr[] = {
+static char const *string_desc_arr[] = {
     (const char[]){0x09, 0x04},
     "Performance Designed Products",
     "Rock Band Wired Legacy Adapter for Xbox One",

@@ -1,6 +1,8 @@
 #ifndef ORB_INSTRUMENT_MANAGER_H_
 #define ORB_INSTRUMENT_MANAGER_H_
 
+#include "xbox_one_protocol.h"
+
 typedef enum {
     FIRST_INSTRUMENT,
     GUITAR_ONE = FIRST_INSTRUMENT,
@@ -9,9 +11,9 @@ typedef enum {
     N_INSTRUMENTS,
 } instruments_e;
 
-void notify_xbox_of_all_instruments();
-void notify_xbox_of_single_instrumenty(instruments_e instrument);
-void connect_instrument(instruments_e instrument);
-void disconnect_instrument(instruments_e instrument);
+void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space);
+void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
+void connect_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
+void disconnect_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
 
 #endif

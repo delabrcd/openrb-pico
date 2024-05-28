@@ -157,12 +157,34 @@ typedef struct {
 } __attribute__((packed)) xb_one_drum_input_pkt_t;
 
 typedef struct {
+    xb_one_wireless_legacy_adapter_pkt_t wla_header;
+
+    uint8_t : 2;
+    uint8_t startButton : 1;
+    uint8_t selectButton : 1;
+
+    uint8_t coloredButtonState2 : 4;
+
+    uint8_t dpadState2 : 4;
+
+    uint8_t orangeButton : 1;
+    uint8_t : 3;
+
+    uint8_t : 8;
+
+    uint8_t whammy;
+
+    uint8_t unused[8];
+} __attribute__((packed)) xb_one_guitar_input_pkt_t;
+
+typedef struct {
     union {
         frame_t frame;
         xb_one_wireless_legacy_adapter_pkt_t wla_header;
         power_report_t power;
         xb_one_controller_input_pkt_t controller_input;
         xb_one_drum_input_pkt_t drum_input;
+        xb_one_guitar_input_pkt_t guitar_input;
 
         uint8_t buffer[XBOX_ONE_EP_MAXPKTSIZE];
     };
@@ -180,6 +202,8 @@ void init_packet(xbox_packet_t *pkt, uint32_t time, uint8_t length);
 
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
                                      xbox_packet_t *wla_output, uint8_t player_id);
+void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla_output,
+                                       uint8_t player_id);
 
 #if OPENRB_DEBUG_ENABLED
 const char *get_command_name(int cmd);
