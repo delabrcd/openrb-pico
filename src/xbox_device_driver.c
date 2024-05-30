@@ -86,9 +86,6 @@ void xboxd_init(void) {
     _xinputd_itf[0].epin_buf.handled = 1;
 }
 
-extern volatile adapter_state_t adapter_state;
-extern void reset_controllers();
-
 // CDD NOTE - with my Pi Pico santroller & my active USB extension I see a bus reset often when i
 // plug it in. I'm assuming its just inrush but we gotta reset ourselves gracefully anyways to
 // recover - currently this doesn't work but should once the reset_controller function is fixed
@@ -98,11 +95,7 @@ void xboxd_reset(uint8_t rhport) {
     tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
     _xinputd_itf[0].epin_buf.handled = 1;
 
-    gpio_put(PIN_LED, false);
-    adapter_state = STATE_NONE;
-    xbox_fifo_clear();
-    reset_controllers();
-    adapter_state = STATE_INIT;
+    if (xboxd_on_reset_cb) xboxd_on_reset_cb();
 }
 
 uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint16_t max_len) {

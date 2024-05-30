@@ -58,7 +58,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
             connect_instrument(GUITAR_TWO, &guitar_2_data.out_packet);
             guitar_2_data.dev_addr = dev_addr;
         } else {
-            OPENRB_DEBUG("Already have 2 guitars connected, can't add another...\r\n")
+            OPENRB_DEBUG("Already have 2 guitars connected, can't add another...\r\n");
             return;
         }
 
@@ -107,4 +107,11 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     if (!tuh_hid_receive_report(dev_addr, instance)) {
         printf("Error: cannot request to receive report\r\n");
     }
+}
+
+void tuh_xinput_report_received_cb(uint8_t dev_addr, uint8_t instance,
+                                   xinputh_interface_t const *xid_itf, uint16_t len) {
+    // OPENRB_DEBUG("Report Received\r\n");
+    // OPENRB_DEBUG_BUF((uint8_t *)&xid_itf.pad, len);
+    // OPENRB_DEBUG("\r\n");
 }
