@@ -14,6 +14,7 @@
 #include "adapter.h"
 #include "drums.h"
 #include "hardware/dma.h"
+#include "hardware/watchdog.h"
 #include "identifiers.h"
 #include "instrument_manager.h"
 #include "midi.h"
@@ -34,6 +35,16 @@ static volatile uint8_t xbox_controller_idx = UINT8_MAX;
 static volatile uint8_t xbox_controller_addr = UINT8_MAX;
 
 static xbox_packet_t out_packet;
+
+static inline void set_auth_led(bool val) { gpio_put(PIN_LED, val); }
+static inline void set_usb_host(bool on) { gpio_put(PIN_5V_EN, on); }
+
+void xboxd_on_reset_cb() {
+    set_auth_led(false);
+
+    // TODO CDD - look into a better way of reinitializing the USB Host stack than a hard reset
+    if (adapter_state != STATE_INIT && adapter_state != STATE_NONE) watchdog_reboot(0, 0, 10);
+}
 
 static inline bool xboxh_send(const xbox_packet_t *buffer) {
     return xboxh_send_report(xbox_controller_addr, xbox_controller_idx, buffer, buffer->length);
@@ -99,14 +110,15 @@ void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t 
 static void handle_auth(const xbox_packet_t *packet) {
     if (packet->frame.command == CMD_AUTHENTICATE && packet->frame.length == 2 &&
         packet->buffer[3] == 2 && packet->buffer[4] == 1 && packet->buffer[5] == 0) {
-        gpio_put(PIN_LED, true);
+        set_auth_led(true);
+
         OPENRB_DEBUG("AUTHENTICATED!\r\n");
         adapter_state = STATE_RUNNING;
 
         notify_xbox_of_all_instruments(&out_packet);
     }
 
-    printf("Sending controller %d bytes\n", packet->length);
+    OPENRB_DEBUG("Sending controller %d bytes\r\n", packet->length);
     xboxh_send(packet);
     return;
 }
@@ -149,12 +161,15 @@ static void handle_init(const xbox_packet_t *packet) {
 static void handle_running(const xbox_packet_t *packet) {
     switch (packet->frame.command) {
         case CMD_POWER_MODE:
-            // TODO CDD - go to bed
+            if (packet->power.data.data == POWER_OFF) {
+                adapter_state = STATE_POWER_OFF;
+                set_auth_led(false);
+                set_usb_host(false);
+            }
             break;
         case CMD_ACKNOWLEDGE:
             xboxh_send(packet);
             break;
-
         case CMD_LIST_CONNECTED_INSTRUMENTS:
             notify_xbox_of_all_instruments(&out_packet);
             break;
@@ -211,7 +226,8 @@ static void configure_host() {
     OPENRB_DEBUG("configuring usb host stack\r\n");
     gpio_init(PIN_5V_EN);
     gpio_set_dir(PIN_5V_EN, GPIO_OUT);
-    gpio_put(PIN_5V_EN, 1);
+
+    set_usb_host(true);
 
     pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
     pio_cfg.pin_dp = PIN_USB_HOST_DP;
@@ -238,8 +254,10 @@ void core1_main() {
 static void init() {
     set_sys_clock_khz(120000, true);
 
+#if OPENRB_DEBUG_ENABLED
     stdio_uart_init_full(UART_ID, 115200, UART_TX_PIN, UART_RX_PIN);
     OPENRB_DEBUG("openrb debug console initialized...\r\n");
+#endif
 
     xbox_fifo_init();
     OPENRB_DEBUG("finished initializing xbox fifo...\r\n");

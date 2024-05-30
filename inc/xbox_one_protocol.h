@@ -48,12 +48,14 @@ enum led_mode_e {
     LED_FADE_FAST = 0x09,
 };
 
+typedef uint8_t led_mode_t;
+
 /* Xbox One data taken from descriptors */
 #define XBOX_ONE_EP_MAXPKTSIZE 64  // Max size for data via USB
 
 typedef struct {
     uint8_t command;
-    uint8_t deviceId : 4;
+    uint8_t device_id : 4;
     uint8_t type : 4;
     uint8_t sequence;
     uint8_t length;
@@ -67,6 +69,13 @@ typedef union {
 
     uint8_t buffer[sizeof(struct parsed_data)];
 } power_report_t;
+
+typedef struct {
+    frame_t frame;
+    uint8_t unknown;
+    led_mode_t mode;
+    uint8_t brightness;
+} __attribute__((packed)) led_mode_command_t;
 
 typedef struct {
     frame_t frame;

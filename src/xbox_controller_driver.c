@@ -38,6 +38,8 @@ typedef struct {
     uint16_t VID;
     uint16_t PID;
 
+    bool is_powered;
+
     CFG_TUH_MEM_ALIGN xbox_packet_t epin_buf;
     CFG_TUH_MEM_ALIGN xbox_packet_t epout_buf;
 } xbox_interface_t;
@@ -238,14 +240,87 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
     return true;
 }
 
+static bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
+    if (p_itf->daddr == 0) return false;
+    if (!p_itf->is_powered) return false;
+
+    power_report_t out = {.data = {.frame = {.command = CMD_POWER_MODE,
+                                             0,
+                                             .type = TYPE_REQUEST,
+                                             get_sequence(),
+                                             sizeof(out.data.data)},
+                                   .data = 0x05}};
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.data = POWER_OFF;
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.data = POWER_SLEEP;
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+    p_itf->is_powered = false;
+    return true;
+}
+
 static const uint8_t xboxone_s_init[] = {0x05, 0x20, 0x00, 0x0f, 0x06};
 
-static const power_report_t power = {.data = {.frame = {.command = CMD_POWER_MODE,
-                                                        .deviceId = 0,
+// CDD NOTE the controllers I've tested with don't have a way to turn them back on once we've turned
+// them off. Otherwise you have to press the guide button to wake them up - this behavior is
+// consistent even if I plug them straight into the xbox
+static bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
+    if (p_itf->daddr == 0) return false;
+    if (p_itf->is_powered) return false;
+    const power_report_t power_on = {.data = {.frame = {.command = CMD_POWER_MODE,
+                                                        .device_id = 0,
                                                         .type = TYPE_REQUEST,
                                                         .sequence = 0,
                                                         .length = 1},
-                                              .data = 0}};
+                                              .data = POWER_ON}};
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    if ((p_itf->PID == XBOX_ONE_PID4 || p_itf->PID == 0x0b00 || p_itf->PID == XBOX_ONE_PID14)) {
+        TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, xboxone_s_init, sizeof(xboxone_s_init)));
+        wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+    }
+
+    led_mode_command_t out = {
+            .frame =
+                    {
+                            .command = CMD_LED_MODE,
+                            .device_id = 0,
+                            .type = TYPE_REQUEST,
+                            get_sequence(),
+                            .length = 3,
+                    },
+            .brightness = 0x14,
+            .mode = LED_ON,
+    };
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    p_itf->is_powered = true;
+    return true;
+}
 
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     TU_LOG_USBH("XBOX Set Config addr: %02x interface: %d", daddr, itf_num);
@@ -254,13 +329,8 @@ bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     TU_VERIFY(p_hid);
 
     uint8_t idx = xbox_itf_get_index(daddr, itf_num);
-    TU_ASSERT(xboxh_send_report(daddr, idx, power.buffer, sizeof(power)));
 
-    wait_for_tx_complete(daddr, p_hid->ep_out);
-
-    if ((p_hid->PID == 0x02ea || p_hid->PID == 0x0b00 || p_hid->PID == 0x0b12)) {
-        TU_ASSERT(xboxh_send_report(daddr, idx, xboxone_s_init, sizeof(xboxone_s_init)));
-    }
+    TU_ASSERT(xboxh_power_on_controller(p_hid));
 
     usbh_driver_set_config_complete(daddr, itf_num);
 
@@ -269,14 +339,50 @@ bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     return true;
 }
 
-void reset_controllers() {
-    // TODO CDD - make this send the power OFF command first
-    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
-        if (_xbox_itf[i].daddr == 0) continue;
+bool xboxh_reset_controller(xbox_interface_t *p_itf) {
+    xboxh_power_off_controller(p_itf);
 
-        xbox_interface_t *p_hid = get_xbox_itf(_xbox_itf[i].daddr, _xbox_itf[0].itf_num);
-        xboxh_send_report(_xbox_itf[i].daddr, 0, power.buffer, sizeof(power));
-        wait_for_tx_complete(_xbox_itf[i].daddr, p_hid->ep_out);
+    power_report_t out = {.data = {.frame = {.command = CMD_POWER_MODE,
+                                             0,
+                                             .type = TYPE_REQUEST,
+                                             get_sequence(),
+                                             sizeof(out.data.data)},
+                                   .data = 0x07}};
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.frame.sequence = get_sequence();
+    out.data.data = 0x00;
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    TU_ASSERT(xboxh_power_on_controller(p_itf));
+    return true;
+}
+
+void xboxh_power_off_controllers() {
+    OPENRB_DEBUG("Powering OFF Xbox Controllers\r\n");
+
+    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
+        xboxh_power_off_controller(&_xbox_itf[i]);
+    }
+}
+
+void xboxh_power_on_controllers() {
+    OPENRB_DEBUG("Powering ON Xbox Controllers\r\n");
+
+    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
+        xboxh_power_on_controller(&_xbox_itf[i]);
+    }
+}
+
+void xboxh_reset_controllers() {
+    OPENRB_DEBUG("RESETTING Xbox Controllers\r\n");
+
+    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
+        xboxh_reset_controller(&_xbox_itf[i]);
     }
 }
 
@@ -298,6 +404,11 @@ bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_
             xboxh_packet_received_cb(idx, &p_controller->epin_buf, xferred_bytes);
 
         // xbox interface requires active polling
+
+        // if(p_controller->epin_buf.frame.command == CMD_IDENTIFY &&
+        // p_controller->epin_buf.frame.type & TYPE_ACK){
+        //     xboxh_send_report(daddr, idx, )
+        // }
         TU_ASSERT(xboxh_receive_report(daddr, idx));
     } else {
         p_controller->epout_buf.length = xferred_bytes;

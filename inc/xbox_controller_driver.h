@@ -31,4 +31,9 @@ bool xboxh_set_config(uint8_t daddr, uint8_t itf_num);
 bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes);
 void xboxh_close(uint8_t daddr);
 
+void xboxh_power_on_controllers();
+void xboxh_power_off_controllers();
+
+void xboxh_reset_controllers();
+
 #endif  // XBOX_CONTROLLER_DRIVER_H

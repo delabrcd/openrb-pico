@@ -9,4 +9,6 @@ bool xboxd_send_task();
 TU_ATTR_WEAK bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf,
                                            uint32_t xferred_bytes);
 
+TU_ATTR_WEAK void xboxd_on_reset_cb();
+
 #endif
