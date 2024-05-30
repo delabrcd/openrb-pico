@@ -1,5 +1,6 @@
 #include "bsp/board_api.h"
-;
+// #include "xinput_host.h"
+
 #include <string.h>
 
 #include "orb_debug.h"
@@ -61,9 +62,8 @@ void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla
     init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
 
     wla_output->frame.command = CMD_INPUT;
-    wla_output->frame.deviceId = 0;
+    wla_output->frame.device_id = 0;
     wla_output->frame.type = 0;
-    wla_output->frame.sequence = get_sequence();
     wla_output->frame.length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
     wla_output->wla_header.playerId = player_id;
 
@@ -87,7 +87,22 @@ void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla
     guitar_pkt->wla_header.dpadState1 = guitar_pkt->dpadState2;
     return;
 }
+#if 0
+void fill_guitar_input_from_xinput(const xinput_gamepad_t *guitar_in, xbox_packet_t *wla_output,
+                                   uint8_t player_id) {
+    init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
+    wla_output->frame.command = CMD_INPUT;
+    wla_output->frame.device_id = 0;
+    wla_output->frame.type = 0;
+    wla_output->frame.length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
+    wla_output->wla_header.playerId = player_id;
 
+    xb_one_guitar_input_pkt_t *guitar_out = &wla_output->guitar_input;
+
+    guitar_out->coloredButtonState2 = guitar_in->wButtons; 
+
+}
+#endif
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
                                      xbox_packet_t *wla_output, uint8_t player_id) {
     memset(wla_output->buffer, 0, sizeof(wla_output->buffer));
@@ -97,8 +112,8 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
 
     wla_output->length = sizeof(xb_one_drum_input_pkt_t);
     wla_output->frame.command = controller_input->frame.command;
-    wla_output->frame.deviceId = controller_input->frame.deviceId;
-    wla_output->frame.type = controller_input->frame.deviceId;
+    wla_output->frame.device_id = controller_input->frame.device_id;
+    wla_output->frame.type = controller_input->frame.device_id;
     wla_output->frame.sequence = get_sequence();
     wla_output->frame.length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t);
 
