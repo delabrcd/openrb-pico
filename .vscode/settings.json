@@ -2,5 +2,7 @@
     "clangd.arguments": [
         "--query-driver=/usr/bin/arm-none-eabi-*", 
         "-header-insertion=never"
-    ]
+    ],
+    "cmake.configureOnOpen": false, 
+    "cmake.generator": "Unix Makefiles"
 }

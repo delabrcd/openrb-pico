@@ -109,9 +109,9 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     }
 }
 
-void tuh_xinput_report_received_cb(uint8_t dev_addr, uint8_t instance,
-                                   xinputh_interface_t const *xid_itf, uint16_t len) {
+// void tuh_xinput_report_received_cb(uint8_t dev_addr, uint8_t instance,
+//                                    xinputh_interface_t const *xid_itf, uint16_t len) {
     // OPENRB_DEBUG("Report Received\r\n");
     // OPENRB_DEBUG_BUF((uint8_t *)&xid_itf.pad, len);
     // OPENRB_DEBUG("\r\n");
-}
+// }
