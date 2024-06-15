@@ -1,17 +1,12 @@
 #pragma once
 
-#ifndef ORB_IN_BSP
-#pragma GCC error "Do not directly include a specific board's pin file, include orb_bsp.h instead"
-#endif
-
-
 #include "pins_common.h"
 
 // Pin definitions taken from:
 //    https://learn.adafruit.com/assets/100337
 
 // LEDs
-#define PIN_LED (13u)
+#define PIN_LED (23u)
 
 // NeoPixel
 #define PIN_NEOPIXEL (21u)
@@ -25,7 +20,6 @@
 #define PIN_USB_HOST_DM (17u)
 #define PIN_5V_EN (18u)
 
-// Serial
 #define MIDI_UART uart0
 #define MIDI_UART_TX (0)
 #define MIDI_UART_RX (1)
@@ -33,10 +27,6 @@
 #define DBG_UART_ID uart1
 #define DBG_UART_TX_PIN (24)
 #define DBG_UART_RX_PIN (25)
-
-// Not pinned out
-#define PIN_SERIAL2_TX (31u)
-#define PIN_SERIAL2_RX (31u)
 
 // SPI
 #define PIN_SPI0_MISO (8u)
