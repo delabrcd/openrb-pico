@@ -18,15 +18,14 @@
 #include "identifiers.h"
 #include "instrument_manager.h"
 #include "midi.h"
+#include "orb_bsp.h"
 #include "orb_debug.h"
 #include "packet_queue.h"
-#include "pins_rp2040_usbh.h"
 #include "pio_usb_configuration.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
 
 #define HOST_CONTROLLER_ID 1
-
 #define FIRST_XBOX_CONTROLLER_IDX 0
 
 volatile adapter_state_t adapter_state = STATE_NONE;
@@ -37,7 +36,20 @@ static volatile uint8_t xbox_controller_addr = UINT8_MAX;
 static xbox_packet_t out_packet;
 
 static inline void set_auth_led(bool val) { gpio_put(PIN_LED, val); }
-static inline void set_usb_host(bool on) { gpio_put(PIN_5V_EN, on); }
+
+static inline void set_usb_host(bool on) {
+#if ORB_BOARD_ID == ORB_BOARD_ID_FEATHER
+    static bool configured = false;
+    if (!configured) {
+        gpio_init(PIN_5V_EN);
+        gpio_set_dir(PIN_5V_EN, GPIO_OUT);
+        configured = true;
+    }
+    gpio_put(PIN_5V_EN, on);
+#else
+    (void)on;
+#endif
+}
 
 void xboxd_on_reset_cb() {
     set_auth_led(false);
@@ -224,10 +236,6 @@ static void announce_task() {
 
 static void configure_host() {
     OPENRB_DEBUG("configuring usb host stack\r\n");
-    gpio_init(PIN_5V_EN);
-    gpio_set_dir(PIN_5V_EN, GPIO_OUT);
-
-    set_usb_host(true);
 
     pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
     pio_cfg.pin_dp = PIN_USB_HOST_DP;
@@ -238,6 +246,8 @@ static void configure_host() {
     tuh_configure(HOST_CONTROLLER_ID, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
     tuh_init(HOST_CONTROLLER_ID);
     OPENRB_DEBUG("finished configuring usb host\r\n");
+
+    set_usb_host(true);
 }
 
 void core1_main() {
@@ -247,15 +257,11 @@ void core1_main() {
     }
 }
 
-#define UART_ID uart1
-#define UART_TX_PIN 24
-#define UART_RX_PIN 25
-
 static void init() {
     set_sys_clock_khz(120000, true);
 
 #if OPENRB_DEBUG_ENABLED
-    stdio_uart_init_full(UART_ID, 115200, UART_TX_PIN, UART_RX_PIN);
+    stdio_uart_init_full(DBG_UART_ID, 115200, DBG_UART_TX_PIN, DBG_UART_RX_PIN);
     OPENRB_DEBUG("openrb debug console initialized...\r\n");
 #endif
 

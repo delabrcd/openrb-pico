@@ -4,7 +4,7 @@ set(PICO_BOARD adafruit_feather_rp2040)
 set(PICO_SDK_PATH ${CMAKE_SOURCE_DIR}/external/pico-sdk)
 
 include(pico_sdk_import.cmake)
-
+include(cmake/AddBoardTarget.cmake)
 project(openrb-pico C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
@@ -40,10 +40,7 @@ set(SOURCES
     ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES})
+set(COMMON_COMPILE_DEFS -DCFG_TUSB_CONFIG_FILE="${CMAKE_SOURCE_DIR}/inc/custom_config.h")
 
-target_compile_definitions(${PROJECT_NAME} PUBLIC -DCFG_TUSB_CONFIG_FILE="${CMAKE_SOURCE_DIR}/inc/custom_config.h")
-
-target_link_libraries(${PROJECT_NAME} PUBLIC pico_pio_usb tinyusb_bsp tinyusb_host tinyusb_device usb_midi_host)
-
-pico_add_extra_outputs(${PROJECT_NAME})
+add_board_target(${PROJECT_NAME} FEATHER "${SOURCES}")
+add_board_target(${PROJECT_NAME} CUSTOM_REV_0_1 "${SOURCES}")

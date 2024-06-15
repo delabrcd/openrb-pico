@@ -2,7 +2,6 @@
 #include "bsp/board_api.h"
 #include "hardware/gpio.h"
 #include "orb_debug.h"
-#include "pins_rp2040_usbh.h"
 #include "tusb_option.h"
 #include "xbox_one_protocol.h"
 

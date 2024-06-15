@@ -54,7 +54,7 @@ static struct {
                               .wla_header.unknown = 0x01},
                 .flags = 0};
 
-static output_e get_output_for_note(uint8_t note) {
+static output_e __not_in_flash_func(get_output_for_note)(uint8_t note) {
     switch (note) {
 #define MIDI_MAP(midi_note, rb_out) \
     case midi_note:                 \
@@ -66,8 +66,8 @@ static output_e get_output_for_note(uint8_t note) {
     }
 }
 
-static void update_drum_state_with_midi_input(output_e out, uint8_t state,
-                                              xb_one_drum_input_pkt_t *drum_input) {
+static void __not_in_flash_func(update_drum_state_with_midi_input)(
+        output_e out, uint8_t state, xb_one_drum_input_pkt_t *drum_input) {
     switch (out) {
         case OUT_KICK:
             drum_input->kick = state;
@@ -119,7 +119,7 @@ static void note_on(uint8_t note, uint8_t velocity) {
 
 extern volatile adapter_state_t adapter_state;
 
-static midi_type_e get_type_from_status(uint8_t status) {
+static inline midi_type_e get_type_from_status(uint8_t status) {
     if ((status < 0x80) || (status == Undefined_F4) || (status == Undefined_F5) ||
         (status == Undefined_FD))
         return InvalidType;  // Data bytes and undefined.
@@ -131,7 +131,7 @@ static midi_type_e get_type_from_status(uint8_t status) {
     return status;
 }
 
-void drum_task() {
+void __not_in_flash_func(drum_task)() {
     if (adapter_state != STATE_RUNNING) return;
 
     static uint8_t pending_msg[48];
@@ -210,9 +210,4 @@ void tuh_midi_umount_cb(uint8_t dev_addr, uint8_t instance) {
         OPENRB_DEBUG("Unused MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
                      instance);
     }
-}
-
-void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets) {
-    (void)dev_addr;
-    (void)num_packets;
 }

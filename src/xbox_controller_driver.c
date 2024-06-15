@@ -323,7 +323,7 @@ static bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
 }
 
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
-    TU_LOG_USBH("XBOX Set Config addr: %02x interface: %d", daddr, itf_num);
+    TU_LOG_USBH("XBOXH Set Config addr: %02x interface: %d", daddr, itf_num);
 
     xbox_interface_t *p_hid = get_xbox_itf(daddr, itf_num);
     TU_VERIFY(p_hid);
@@ -424,6 +424,7 @@ void xboxh_close(uint8_t daddr) {
         if (!p_controller) continue;
         if (p_controller->daddr == daddr) {
             p_controller->daddr = 0;
+            p_controller->is_powered = false;
             if (xboxh_umount_cb) xboxh_umount_cb(daddr, i);
         }
     }
