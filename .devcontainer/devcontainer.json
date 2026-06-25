@@ -3,6 +3,13 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
+    // Pass the host USB bus through so the SWD debug probe (CMSIS-DAP) is
+    // reachable from inside the container for openocd flash/debug.
+    "runArgs": [
+        "--privileged",
+        "-v",
+        "/dev/bus/usb:/dev/bus/usb"
+    ],
     "customizations": {
         "vscode": {
             "extensions": [
