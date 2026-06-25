@@ -54,6 +54,11 @@ extern "C" {
 #define CFG_TUSB_MCU OPT_MCU_RP2040
 #define CFG_TUSB_OS OPT_OS_PICO
 
+// temporary: route host-stack logs through the deferred (core1-safe) logger
+int dlog_printf(const char *fmt, ...);
+#define CFG_TUSB_DEBUG 2
+#define CFG_TUSB_DEBUG_PRINTF dlog_printf
+
 #define CFG_TUSB_MEM_SECTION
 #define CFG_TUSB_MEM_ALIGN TU_ATTR_ALIGNED(4)
 
@@ -85,7 +90,7 @@ extern "C" {
 // Number of hub devices
 
 #define CFG_TUD_LOG_LEVEL 0
-#define CFG_TUH_LOG_LEVEL 0
+#define CFG_TUH_LOG_LEVEL 2
 
 #ifdef __cplusplus
 }

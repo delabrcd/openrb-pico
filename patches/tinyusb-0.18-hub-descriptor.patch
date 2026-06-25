@@ -1,0 +1,16 @@
+diff --git a/src/host/hub.c b/src/host/hub.c
+index e97014443..44954eb8c 100644
+--- a/src/host/hub.c
++++ b/src/host/hub.c
+@@ -261,9 +261,9 @@ bool hub_set_config(uint8_t dev_addr, uint8_t itf_num)
+       .direction = TUSB_DIR_IN
+     },
+     .bRequest = HUB_REQUEST_GET_DESCRIPTOR,
+-    .wValue   = 0,
++    .wValue   = 0x2900,
+     .wIndex   = 0,
+-    .wLength  = sizeof(descriptor_hub_desc_t)
++    .wLength  = 8
+   };
+ 
+   tuh_xfer_t xfer =

@@ -23,6 +23,7 @@ include_directories(inc)
 
 set(SOURCES
     src/main.c
+    src/dlog.c
     src/drums.c
     src/packet_queue.c
     src/host_drivers.c

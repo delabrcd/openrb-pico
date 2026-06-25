@@ -13,8 +13,10 @@
 #include <string.h>
 
 #include "adapter.h"
+#include "dlog.h"
 #include "drums.h"
 #include "hardware/dma.h"
+#include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "identifiers.h"
 #include "instrument_manager.h"
@@ -35,6 +37,21 @@ static volatile uint8_t xbox_controller_idx = UINT8_MAX;
 static volatile uint8_t xbox_controller_addr = UINT8_MAX;
 
 static xbox_packet_t out_packet;
+
+// tinyusb 0.18's enumeration uses blocking osal_task_delay() (= sleep_ms) on the
+// host core. sleep_ms hangs on the core running Pico-PIO-USB (it waits on an
+// alarm event that core never receives), which stalls enumeration right after
+// attach. Override the weak delay with a timer-based busy-wait that works on
+// either core and keeps the PIO SOF interrupt running.
+void tusb_time_delay_ms_api(uint32_t ms) {
+    // Read the raw 32-bit timer directly: time_us_64()/busy_wait take a spin
+    // lock that deadlocks on core1 here. timerawl is lock-free.
+    uint32_t start = timer_hw->timerawl;
+    uint32_t us = ms * 1000u;
+    while ((uint32_t)(timer_hw->timerawl - start) < us) {
+        tight_loop_contents();
+    }
+}
 
 static inline void set_auth_led(bool val) { gpio_put(PIN_LED, val); }
 
@@ -261,6 +278,8 @@ void core1_main() {
 static void init() {
     set_sys_clock_khz(120000, true);
 
+    dlog_init();
+
 #if OPENRB_DEBUG_ENABLED
     stdio_uart_init_full(DBG_UART_ID, 115200, DBG_UART_TX_PIN, DBG_UART_RX_PIN);
     OPENRB_DEBUG("openrb debug console initialized...\r\n");
@@ -295,5 +314,6 @@ int main() {
         announce_task();
         xboxd_send_task();
         drum_task();
+        dlog_drain();
     }
 }
