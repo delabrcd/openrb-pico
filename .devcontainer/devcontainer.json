@@ -1,0 +1,22 @@
+{
+    "name": "openrb-pico",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cmake-tools",
+                "llvm-vs-code-extensions.vscode-clangd",
+                "marus25.cortex-debug"
+            ],
+            "settings": {
+                "cmake.configureArgs": [
+                    "-DPICO_SDK_PATH=${workspaceFolder}/external/pico-sdk"
+                ]
+            }
+        }
+    },
+    // Submodules carry the Pico SDK, tinyusb, Pico-PIO-USB, and usb_midi_host.
+    "postCreateCommand": "git submodule update --init --recursive"
+}
