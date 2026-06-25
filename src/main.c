@@ -1,5 +1,6 @@
 #include <bsp/board_api.h>
 #include <device/usbd.h>
+#include <hardware/clocks.h>
 #include <hardware/gpio.h>
 #include <hardware/uart.h>
 #include <host/usbh.h>

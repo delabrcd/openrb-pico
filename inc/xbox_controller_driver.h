@@ -24,7 +24,7 @@ TU_ATTR_WEAK void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *dat
 
 TU_ATTR_WEAK void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata);
 
-void xboxh_init(void);
+bool xboxh_init(void);
 bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf,
                 uint16_t max_len);
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num);

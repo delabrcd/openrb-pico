@@ -1,7 +1,7 @@
 
 #include "instrument_manager.h"
 
-#include <pico/platform.h>
+#include <pico.h>
 #include <stdint.h>
 #include <string.h>
 

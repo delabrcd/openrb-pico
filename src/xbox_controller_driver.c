@@ -187,8 +187,9 @@ bool xboxh_receive_report(uint8_t daddr, uint8_t idx) {
     return true;
 }
 
-void xboxh_init(void) {
+bool xboxh_init(void) {
     tu_memclr(_xbox_itf, sizeof(_xbox_itf));
+    return true;
 }
 
 bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf,
