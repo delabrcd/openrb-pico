@@ -11,29 +11,18 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-    - name: Set up toolchain
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-arm-none-eabi cmake make
-    
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
-        
-    - name: Configure CMake
-      run: |
-        mkdir -p build
-        cd build
-        cmake ..
 
-    - name: Build project
-      run: |
-        cd build
-        make
-  
+    - name: Build firmware in devcontainer
+      uses: devcontainers/ci@v0.3
+      with:
+        runCmd: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
+
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: rp2040-build
         path: build/*.uf2
