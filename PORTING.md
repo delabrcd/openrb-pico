@@ -1,20 +1,23 @@
 # Host-stack port to pico-sdk 2.2.0 / TinyUSB 0.18 / Pico-PIO-USB 0.7.2
 
-Status: **host stack now brings up and enumerates the hub on real hardware.** The
-core1 blocker (below) is fixed; the remaining issue is that a device **behind the
-CH334R hub** (the Xbox controller) does not complete its control transfers.
+Status: **the Xbox controller now enumerates, mounts, and streams input through
+the CH334R hub on real hardware.** Both prior blockers are fixed. The controller
+reaches `Set Address`, its device descriptor is read, the XBOXH driver claims its
+IN endpoint, and input reports flow (`on EP 82 with 8 bytes: OK` every frame).
+Xbox auth (`STATE_RUNNING`, AUTH LED) requires a real console and is untested here.
 
 The dependency bump (pico-sdk 1.5.1→2.2.0, TinyUSB 0.16→0.18, Pico-PIO-USB
 0.5.3→0.7.2, usb_midi_host→2.0.0) changed several core1-sensitive behaviours.
 
-## What works (verified on hardware, rev 0.2 board)
+## What works (verified on hardware)
 - Build (all targets), USB device enumeration on the PC.
 - SWD flash + debug UART (dlog → uart1 GPIO24/25 → probe `/dev/ttyACM0`).
-- **core1 launches and stays up** (was the headline blocker — see below).
+- **core1 launches and stays up** (root cause #1 — see below).
 - USB host SOF runs (`sof_count` climbs ~1000/s).
-- **The CH334R hub fully enumerates**: device + config descriptors read, address
-  set (addr 5), all 4 ports powered, port-1 connection detected + reset, and
-  `[1:] USBH Device Attach` fires for the controller behind it.
+- **The CH334R hub fully enumerates** (device + config descriptors, addr 5, all 4
+  ports powered, port-1 reset).
+- **The controller behind the hub enumerates + mounts + streams input** (root
+  cause #2 — see below), reliably at 240 MHz.
 
 ## ROOT CAUSE #1 — core1 early-launch handshake race (FIXED)
 **Symptom:** core1 ran ~25–50 ms after `multicore_launch_core1()` then fell back
@@ -40,49 +43,65 @@ multicore_launch_core1(core1_main);
 plus a ~10 ms settle at the top of `core1_main` before `configure_host()`. See
 `launch_core1_robust()`. Verified: core1 no longer dies, SOF runs, hub enumerates.
 
-## CURRENT BLOCKER #2 — control transfer to a device behind the hub times out
-After the hub resets its downstream port and `USBH Device Attach` fires, the very
-first `GET_DESCRIPTOR` (8 bytes) to the controller (addr 0, behind the hub) fails:
-`on EP 00 with 0 bytes: FAILED` → "Enumeration attempt 1/2/3" all fail → the
-controller never mounts (`xboxh_mount_cb` never runs, `adapter_state` stays
-`STATE_INIT`).
+## ROOT CAUSE #2 — PIO-USB timing margin through the hub repeater (FIXED)
+**Symptom:** after the hub resets its downstream port and `USBH Device Attach`
+fires, the controller's very first `GET_DESCRIPTOR` SETUP (addr 0, behind the hub)
+intermittently got **no handshake at all** — `wait_handshake()` returned 0,
+`pio_usb_bus_wait_for_rx_start()` never saw RX-start. All 3 enum attempts then
+failed → `Control FAILED` → controller never mounted, `adapter_state` stuck at
+`STATE_INIT`. Failure was all-or-nothing per boot (~90% of boots at 120 MHz).
 
-Key contrast: transfers to the **hub itself** (addr 5, directly on the root port)
-all succeed; only transfers to the device **one hop through the hub's repeater**
-fail. In `usb_in_transaction()` (Pico-PIO-USB `pio_usb_host.c`) it takes the
-`res = -1` path — `pio_usb_bus_receive_packet_and_handshake()` returns < 0 and the
-PID is not NAK/STALL, i.e. a **receive timeout/garble**, retried 3× then
-`ENDPOINT_ERROR`. Most likely a **PIO-USB 0.7.2 RX-timing margin** that the extra
-hub-hop latency pushes the response outside of (0.5.3 tolerated it). Needs
-investigation in `pio_usb_bus.c` RX timing / `pio_usb_bus_receive_packet_and_handshake`.
+**Diagnosis (on hardware, via dlog instrumentation):**
+- Transfers to the **hub itself** (addr 5, 0 repeater hops) were 100% reliable;
+  only the device **one hop through the hub's repeater** failed.
+- Widening the FS RX-start window 3 µs → 20 µs did **not** help (still
+  `start0`/no-response), ruling out a late-turnaround / RX-timeout-window cause.
+- Reverting the PR #164 FS inter-packet/turnaround optimizations (commits
+  `76a5c1a`, `7f1eaa5`) did **not** help either.
+- The failure was a *total non-response*, i.e. the bit-banged PIO-USB packet
+  wasn't surviving the CH334R repeater cleanly (marginal edge/bit timing).
+
+**Cause:** Pico-PIO-USB's software-timed USB signalling, at the documented 120 MHz
+sys clock, has too little sub-bit timing resolution to push a clean packet through
+the extra repeater hop. (The hub itself, directly on the root port, is fine.)
+
+**Fix (in `src/main.c`):** run the RP2040 at **240 MHz** instead of 120 —
+`set_sys_clock_khz(240000, true)`. This doubles the PIO sub-bit resolution; the
+PIO-USB clock dividers derive from `clk_sys` automatically. The controller then
+enumerates reliably (≥95% of rapid SWD-reset boots; the device stack and serial
+MIDI are unaffected). 240 MHz is the operating point the Pico-PIO-USB examples use.
+
+**Known residual (~5%, deferred):** a small fraction of *rapid-reset* boots still
+fail the addr-0 SETUP on all 3 attempts and leave the controller stuck, because
+TinyUSB `process_enumeration()` (`usbh.c`) retries the same GET_DESCRIPTOR without
+re-resetting the hub port. A future hardening pass could re-reset the port and
+retry on full enumeration failure. The rapid-reset cadence (RP2040 reset every 3 s
+while hub+controller stay powered) likely overstates the real single-power-on rate.
 
 ## Fixes/patches already applied (this branch)
 1. **FIFO mutex deadlock (fixed).** TinyUSB 0.18 made the `osal_pico` mutex a real
    blocking mutex. `src/packet_queue.c` drops the xbox FIFO's redundant read mutex
    (`CREATE_GENERIC_FIFO(... /*rd_mtx=*/false, /*wr_mtx=*/true)`).
 2. **core1 launch settle delay** — ROOT CAUSE #1 fix above (`src/main.c`).
-3. **`tusb_time_delay_ms_api` override (`src/main.c`)** — lock-free `timerawl`
+3. **240 MHz sys clock** — ROOT CAUSE #2 fix above (`src/main.c`,
+   `set_sys_clock_khz(240000, true)`).
+4. **`tusb_time_delay_ms_api` override (`src/main.c`)** — lock-free `timerawl`
    busy-wait; TinyUSB 0.18 enum delays use it and `sleep_ms`/`busy_wait` take a
    spin lock that hangs on the PIO-USB core.
-4. **Deferred logger (`src/dlog.c`/`inc/dlog.h`)** — core1-safe SPSC RAM ring
+5. **Deferred logger (`src/dlog.c`/`inc/dlog.h`)** — core1-safe SPSC RAM ring
    buffer; core1 formats, core0 drains to uart1. TinyUSB host logs routed via
    `CFG_TUSB_DEBUG_PRINTF=dlog_printf`. Made the host debuggable.
-5. **Submodule patches** (`patches/`, also applied to checked-out submodules):
+6. **Submodule patches** (`patches/`, also applied to checked-out submodules):
    - `patches/tinyusb-0.18-hub-descriptor.patch` — hub `GET_DESCRIPTOR`
      `wValue=0x2900, wLength=8` (CH334R needs the descriptor type in wValue).
      **Confirmed working** — the hub now enumerates.
    - `patches/pico-pio-usb-0.7.2-pid-mismatch.patch` — accept DATA0/1
-     PID-mismatched IN packets instead of dropping. Applied; not sufficient for
-     blocker #2 (that is a receive *timeout*, not a PID mismatch).
+     PID-mismatched IN packets instead of dropping (re-syncs the data toggle).
 
-## Debug instrumentation currently in the tree (REMOVE before merge)
-`src/main.c` and `external/Pico-PIO-USB/src/pio_usb_host.c` carry a lot of
-diagnostic scaffolding used to find root cause #1: `g_c1_heartbeat`/`g_c1_time`/
-`g_c0_heartbeat`/`g_delay_*`/`g_relaunch_*` probes, a RAM-resident `isr_hardfault`
-capture, `g_sof_enter/exit`/`g_frame_stage` markers, the `ORB_*` test toggles, and
-the dlog liveness beacon in `main()`. These should be stripped once blocker #2 is
-fixed, keeping only: the FIFO fix, the core1 settle delay, the `tusb_time_delay_ms_api`
-override, dlog (optional), and the two submodule patches.
+Debug scaffolding from the root-cause-#1 hunt has been stripped; `src/main.c`,
+`pio_usb.c`, and `pio_usb_host.c` carry only the fixes above (verify with
+`git diff <tag>` against the submodule tags — `pio_usb.c` should be empty,
+`pio_usb_host.c` should show only the PID-mismatch hunk).
 
 ## How to build / flash / observe (everything in Docker)
 Build:
@@ -111,13 +130,17 @@ If flashing returns `Unknown flash device (ID 0x00ffffff)`, the QSPI flash is
 wedged in continuous-read/QPI mode; SWD cannot reset the external chip — recover
 with a **power-cycle** or hold **BOOTSEL** while plugging in.
 
+A persistent UART monitor lives in `scratchpad/mon/` (`mon-start.sh` /
+`mon-reset.sh` / `mon-stop.sh`): a detached daemon timestamps `/dev/ttyACM0` into
+`scratchpad/mon/uart.log`, surviving target resets. `mon-reset.sh` marks the log
+and issues an SWD `reset run`. Tail with
+`docker exec orb-dbg tail -n 200 /work/scratchpad/mon/uart.log`.
+
 ## Next steps
-1. **Blocker #2:** instrument/measure the device-behind-hub IN transaction.
-   Determine res=-1 vs res=-2 (RX-complete-but-bad vs no-RX) on the controller's
-   first `GET_DESCRIPTOR`; compare the RX timing window in Pico-PIO-USB 0.7.2's
-   `pio_usb_bus_receive_packet_and_handshake`/`pio_usb_bus.c` against 0.5.3. Also
-   try a longer post-reset settle and verify the controller's reported speed.
-2. Once the controller mounts (`xboxh_mount_cb` → "Controller Connected") and Xbox
-   auth completes (`adapter_state == STATE_RUNNING`, AUTH LED), strip the debug
-   instrumentation (see above) and fold the submodule patches into the `delabrcd/*`
-   forks.
+1. **End-to-end with a real Xbox console:** confirm the device side still
+   enumerates at 240 MHz and that auth completes (`adapter_state == STATE_RUNNING`,
+   AUTH LED on). Auth cannot be exercised on the bench (no console).
+2. **(Deferred) close the ~5% stuck-boot tail:** on full device-behind-hub
+   enumeration failure, re-reset the hub port and retry instead of giving up
+   (`process_enumeration()` in `usbh.c`).
+3. Fold the two submodule patches into the `delabrcd/*` forks.

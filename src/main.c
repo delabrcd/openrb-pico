@@ -295,7 +295,11 @@ void core1_main() {
 }
 
 static void init() {
-    set_sys_clock_khz(120000, true);
+    // 240 MHz (not 120): the bit-banged Pico-PIO-USB host needs the finer sub-bit
+    // timing resolution to drive a clean packet through the CH334R hub's repeater.
+    // At 120 MHz the controller behind the hub fails its first SETUP intermittently
+    // (no handshake) and never enumerates. See PORTING.md root cause #2.
+    set_sys_clock_khz(240000, true);
 
     dlog_init();
 
