@@ -43,9 +43,10 @@ static xbox_packet_t out_packet;
 // alarm event that core never receives), which stalls enumeration right after
 // attach. Override the weak delay with a timer-based busy-wait that works on
 // either core and keeps the PIO SOF interrupt running.
-void tusb_time_delay_ms_api(uint32_t ms) {
-    // Read the raw 32-bit timer directly: time_us_64()/busy_wait take a spin
-    // lock that deadlocks on core1 here. timerawl is lock-free.
+void __not_in_flash_func(tusb_time_delay_ms_api)(uint32_t ms) {
+    // Lock-free busy-wait on the raw timer: time_us_64()/busy_wait()/sleep_ms()
+    // take a spin lock / wait on an alarm that hangs on the core running
+    // Pico-PIO-USB, so they cannot be used on core1. timerawl is lock-free.
     uint32_t start = timer_hw->timerawl;
     uint32_t us = ms * 1000u;
     while ((uint32_t)(timer_hw->timerawl - start) < us) {
@@ -268,7 +269,25 @@ static void configure_host() {
     set_usb_host(true);
 }
 
+void core1_main(void);
+
+// core1's first launch after a chip reset can be spuriously reset back into the
+// bootrom (PC=0x184) ~25-50ms in: an early-launch FIFO-handshake race in
+// multicore_launch_core1() if core0 launches before core1 has settled into the
+// bootrom wait-for-vector loop. The pico-sdk 1.5.1 -> 2.2.0 boot-timing change
+// exposed it. The Pico-PIO-USB examples avoid it by sleeping ~10ms before the
+// reset+launch (and again at the top of core1_main). See PORTING.md.
+static void launch_core1_robust(void) {
+    sleep_ms(10);
+    multicore_reset_core1();
+    multicore_launch_core1(core1_main);
+}
+
 void core1_main() {
+    // Settle before bringing up PIO-USB (matches the Pico-PIO-USB examples'
+    // sleep_ms(10)); lock-free timer wait to avoid any alarm-pool dependency.
+    uint32_t t = timer_hw->timerawl;
+    while ((uint32_t)(timer_hw->timerawl - t) < 10000u) tight_loop_contents();
     configure_host();
     while (true) {
         tuh_task();
@@ -292,8 +311,7 @@ static void init() {
     gpio_set_dir(PIN_LED, true);
 
     OPENRB_DEBUG("starting usb host stack\r\n");
-    multicore_reset_core1();
-    multicore_launch_core1(core1_main);
+    launch_core1_robust();
 
     OPENRB_DEBUG("starting usb device stack\r\n");
     tud_init(TUD_OPT_RHPORT);
