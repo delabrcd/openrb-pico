@@ -58,7 +58,10 @@ void serial_midi_init() {
     gpio_set_function(MIDI_UART_TX, GPIO_FUNC_UART);
     gpio_set_function(MIDI_UART_RX, GPIO_FUNC_UART);
 
-    OPENRB_DEBUG("uart baud: %d", uart_init(MIDI_UART, 31250));  // MIDI baud rate
+    // NB: keep uart_init out of the OPENRB_DEBUG(...) argument — when debug is
+    // disabled the macro expands to nothing and the UART would never initialize.
+    uint actual_baud = uart_init(MIDI_UART, 31250);
+    OPENRB_DEBUG("uart baud: %u\r\n", actual_baud);
 
     setup_disconnect_timer();
 }

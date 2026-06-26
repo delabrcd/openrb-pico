@@ -301,12 +301,10 @@ static void init() {
     // (no handshake) and never enumerates. See PORTING.md root cause #2.
     set_sys_clock_khz(240000, true);
 
+    // dlog owns the debug UART (uart1, GPIO24/25); OPENRB_DEBUG and the TinyUSB
+    // logs both drain through it deferred, so no synchronous stdio UART is set up.
     dlog_init();
-
-#if OPENRB_DEBUG_ENABLED
-    stdio_uart_init_full(DBG_UART_ID, 115200, DBG_UART_TX_PIN, DBG_UART_RX_PIN);
     OPENRB_DEBUG("openrb debug console initialized...\r\n");
-#endif
 
     xbox_fifo_init();
     OPENRB_DEBUG("finished initializing xbox fifo...\r\n");

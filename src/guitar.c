@@ -105,7 +105,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     xbox_fifo_write(packet);
 
     if (!tuh_hid_receive_report(dev_addr, instance)) {
-        printf("Error: cannot request to receive report\r\n");
+        OPENRB_DEBUG("Error: cannot request to receive report\r\n");
     }
 }
 
