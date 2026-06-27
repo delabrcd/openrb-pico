@@ -25,6 +25,7 @@
 #include "orb_debug.h"
 #include "packet_queue.h"
 #include "pio_usb_configuration.h"
+#include "usb_log.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
 
@@ -291,26 +292,59 @@ void core1_main() {
     configure_host();
     while (true) {
         tuh_task();
+        usb_log_task();  // drain the log ring out to the USB flash drive
     }
 }
 
+// The CH334R hub stays powered across an RP2040 warm/watchdog reset, so it keeps
+// stale state and the downstream controller fails to re-enumerate -- only a cold
+// power-on recovers it. GPIO18 (USB_HUB_RST) drives the hub's active-low RESET#;
+// pulse it on every boot to force a clean hub reset. Custom board only -- on the
+// FEATHER board GPIO18 is the 5V enable.
+//
+// CH334/335 datasheet (V2.5, sec 3.2 / Table 3-2): RESET#/CDP is active-low with a
+// built-in ~25k pull-up; a low pulse >4us resets the chip; POR after release is
+// ~5-14ms. CRITICAL: do NOT actively drive the pin HIGH -- as the hub exits reset,
+// a driven-high level enables the CDP charging-port mode and disables low-power
+// sleep, which disturbs the downstream port. Release to Hi-Z instead and let the
+// internal pull-up bring it high (equivalent to the datasheet's recommended series
+// Schottky-diode-to-MCU arrangement).
+static void reset_usb_hub(void) {
+#if ORB_BOARD_ID == ORB_BOARD_ID_CUSTOM_REV_0_1
+    gpio_init(PIN_USB_HUB_RST);
+    gpio_set_dir(PIN_USB_HUB_RST, GPIO_OUT);
+    gpio_put(PIN_USB_HUB_RST, 0);            // assert RESET# low (>4us; we hold 10ms)
+    sleep_ms(10);
+    gpio_set_dir(PIN_USB_HUB_RST, GPIO_IN);  // release to Hi-Z; internal pull-up -> high, no CDP
+    sleep_ms(50);                            // wait out the hub POR (~5-14ms) before host init
+#endif
+}
+
 static void init() {
-    // 240 MHz (not 120): the bit-banged Pico-PIO-USB host needs the finer sub-bit
-    // timing resolution to drive a clean packet through the CH334R hub's repeater.
-    // At 120 MHz the controller behind the hub fails its first SETUP intermittently
-    // (no handshake) and never enumerates. See PORTING.md root cause #2.
-    set_sys_clock_khz(240000, true);
+    // 120 MHz (no overclock): with upstream Pico-PIO-USB (post-0.7.2 bus-turnaround
+    // / handshake timing fixes), the controller enumerates reliably through the
+    // CH334R repeater at the stock 120 MHz the PIO-USB library is designed for.
+    set_sys_clock_khz(120000, true);
 
     // dlog owns the debug UART (uart1, GPIO24/25); OPENRB_DEBUG and the TinyUSB
     // logs both drain through it deferred, so no synchronous stdio UART is set up.
     dlog_init();
     OPENRB_DEBUG("openrb debug console initialized...\r\n");
 
+    // Mirror the deferred log to a USB flash drive on the hub (usb_log). core0
+    // pushes drained bytes into the ring here; core1 (which owns the USB host
+    // stack) writes them out to LOG.TXT on the drive.
+    dlog_set_sink(usb_log_write);
+
     xbox_fifo_init();
     OPENRB_DEBUG("finished initializing xbox fifo...\r\n");
 
     gpio_init(PIN_LED);
     gpio_set_dir(PIN_LED, true);
+
+    // Reset the hub before bringing up the host so a warm/watchdog reset
+    // re-enumerates the controller cleanly instead of staying wedged.
+    reset_usb_hub();
 
     OPENRB_DEBUG("starting usb host stack\r\n");
     launch_core1_robust();

@@ -21,9 +21,20 @@ pico_sdk_init()
 add_subdirectory(external)
 include_directories(inc)
 
+# FatFs (vendored in the SDK's TinyUSB) for writing the log to a USB flash drive.
+set(FATFS_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source)
+include_directories(${FATFS_DIR})
+# FatFs has its own (lots of) warnings; don't let them fail our build.
+set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_DIR}/ffsystem.c
+    PROPERTIES COMPILE_FLAGS "-w")
+
 set(SOURCES
     src/main.c
     src/dlog.c
+    src/usb_log.c
+    ${FATFS_DIR}/ff.c
+    ${FATFS_DIR}/ffsystem.c
+    ${FATFS_DIR}/ffunicode.c
     src/drums.c
     src/packet_queue.c
     src/host_drivers.c

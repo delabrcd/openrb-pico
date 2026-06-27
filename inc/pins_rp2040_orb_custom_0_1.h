@@ -18,7 +18,11 @@
 // USB host connector
 #define PIN_USB_HOST_DP (16u)
 #define PIN_USB_HOST_DM (17u)
-#define PIN_5V_EN (18u)
+// GPIO18 is wired to the CH334R hub's active-low RESET# (net USB_HUB_RST) on the
+// rev 0.2 board -- NOT a 5V enable (that label is vestigial from the FEATHER
+// design). Pulsed low at startup to reset the hub on every boot (warm resets
+// included), since the hub stays powered across an RP2040 reset.
+#define PIN_USB_HUB_RST (18u)
 
 #define MIDI_UART uart0
 #define MIDI_UART_TX (0)

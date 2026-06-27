@@ -56,7 +56,7 @@ extern "C" {
 
 // temporary: route host-stack logs through the deferred (core1-safe) logger
 int dlog_printf(const char *fmt, ...);
-#define CFG_TUSB_DEBUG 2
+#define CFG_TUSB_DEBUG 0
 #define CFG_TUSB_DEBUG_PRINTF dlog_printf
 
 #define CFG_TUSB_MEM_SECTION
@@ -79,6 +79,10 @@ int dlog_printf(const char *fmt, ...);
 
 #define CFG_TUH_HID 2
 #define CFG_TUH_HUB 1
+
+// Mass storage HOST: lets us log to a USB flash drive plugged into the hub
+// (src/usb_log.c, via FatFs). Built-in TinyUSB host driver, auto-registered.
+#define CFG_TUH_MSC 1
 
 //--------------------------------------------------------------------
 // Host Configuration

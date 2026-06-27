@@ -1,7 +1,7 @@
 #ifndef ORB_DEBUG_H
 #define ORB_DEBUG_H
 
-#define OPENRB_DEBUG_ENABLED 0
+#define OPENRB_DEBUG_ENABLED 1
 
 #if OPENRB_DEBUG_ENABLED
 #include <stdint.h>

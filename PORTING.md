@@ -103,38 +103,22 @@ Debug scaffolding from the root-cause-#1 hunt has been stripped; `src/main.c`,
 `git diff <tag>` against the submodule tags — `pio_usb.c` should be empty,
 `pio_usb_host.c` should show only the PID-mismatch hunk).
 
-## How to build / flash / observe (everything in Docker)
-Build:
-```
-docker run --rm -v $PWD:/work:z -w /work openrb-pico-dev \
-  bash -lc 'cmake --build build -j"$(nproc)"'
-```
-Persistent debug container (toolchain pre-installed; avoids per-run apt):
-```
-docker run -d --name orb-dbg --privileged -v /dev/bus/usb:/dev/bus/usb -v /dev:/dev \
-  -v $PWD:/work:z -w /work ubuntu:24.04 sleep infinity
-docker exec orb-dbg bash -c 'apt-get update -qq && apt-get install -y -qq openocd gdb-multiarch binutils-arm-none-eabi'
-```
-Flash (halt both cores first — avoids core1 interfering with the flash algorithm):
-```
-docker exec orb-dbg bash -c 'cd /work && openocd -f interface/cmsis-dap.cfg \
-  -c "adapter speed 4000" -f target/rp2040.cfg \
-  -c "init" -c "targets rp2040.core1" -c "catch {halt}" -c "targets rp2040.core0" -c "catch {halt}" \
-  -c "program build/openrb-pico_CUSTOM_REV_0_1.elf verify reset exit"'
-```
-Observe autonomously over the debug UART (no SWD — does not perturb timing):
-```
-docker exec orb-dbg bash -c 'stty -F /dev/ttyACM0 115200 raw -echo; timeout 10 cat /dev/ttyACM0'
-```
-If flashing returns `Unknown flash device (ID 0x00ffffff)`, the QSPI flash is
-wedged in continuous-read/QPI mode; SWD cannot reset the external chip — recover
-with a **power-cycle** or hold **BOOTSEL** while plugging in.
+## How to build / flash / observe
+All of this is wrapped by the `scripts/` helpers over `docker-compose.yml` — see
+[`BUILDING.md`](BUILDING.md). In short: `scripts/build.sh`, `scripts/flash.sh`,
+`scripts/reset.sh`, `scripts/uart.sh`.
 
-A persistent UART monitor lives in `scratchpad/mon/` (`mon-start.sh` /
-`mon-reset.sh` / `mon-stop.sh`): a detached daemon timestamps `/dev/ttyACM0` into
-`scratchpad/mon/uart.log`, surviving target resets. `mon-reset.sh` marks the log
-and issues an SWD `reset run`. Tail with
-`docker exec orb-dbg tail -n 200 /work/scratchpad/mon/uart.log`.
+Two details worth knowing here:
+- **Flash halts both cores first** — core1 otherwise interferes with the flash
+  algorithm (it runs the USB host loop). The `dbg` service's openocd invocation does
+  `targets rp2040.core1; halt; targets rp2040.core0; halt` before `program`.
+- If flashing returns `Unknown flash device (ID 0x00ffffff)`, the QSPI flash is wedged
+  in continuous-read/QPI mode; SWD cannot reset the external chip — recover with a
+  **power-cycle** or hold **BOOTSEL** while plugging in.
+
+The `monitor` compose service owns the debug UART and timestamps it into `.mon/uart.log`
+(surviving target resets), so observing never perturbs SWD timing — `scripts/reset.sh`
+marks the log and `scripts/uart.sh` reads it.
 
 ## Next steps
 1. **End-to-end with a real Xbox console:** confirm the device side still

@@ -1,0 +1,47 @@
+name: openrb-pico
+
+# One image (openrb-pico-dev, from .devcontainer/Dockerfile) used by three services
+# that differ only in runtime config:
+#   build   - one-shot, unprivileged: cross-compile the firmware.
+#   dbg     - one-shot, privileged + /dev: openocd flash / reset over SWD.
+#   monitor - long-running, privileged + /dev: owns the debug UART -> .mon/uart.log.
+# Privilege/device access is per-service, so builds stay unprivileged.
+# The scripts/ wrappers drive these; see BUILDING.md.
+
+x-base: &base
+  build:
+    context: .
+    dockerfile: .devcontainer/Dockerfile
+  image: openrb-pico-dev
+  working_dir: /work
+
+# Shared env for the UART-facing services.
+x-uart-env: &uart-env
+  ORB_TTY: "${ORB_TTY:-/dev/ttyACM0}"
+  ORB_BAUD: "${ORB_BAUD:-115200}"
+
+services:
+  build:
+    <<: *base
+    volumes:
+      - .:/work
+    profiles: [oneshot]          # not started by `up`; use `compose run --rm build ...`
+
+  dbg:
+    <<: *base
+    privileged: true
+    volumes:
+      - .:/work
+      - /dev:/dev
+    environment: *uart-env
+    profiles: [oneshot]          # not started by `up`; use `compose run --rm dbg ...`
+
+  monitor:
+    <<: *base
+    privileged: true
+    volumes:
+      - .:/work
+      - /dev:/dev
+    environment: *uart-env
+    restart: unless-stopped       # only long-running service; auto-restarts
+    command: ["/work/docker/uart-monitor.sh"]

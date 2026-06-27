@@ -25,6 +25,10 @@ static volatile char dlog_buf[DLOG_NRING][DLOG_SIZE];
 static volatile uint32_t dlog_head[DLOG_NRING];  // next write index (producer)
 static volatile uint32_t dlog_tail[DLOG_NRING];  // next read index (consumer)
 
+static dlog_sink_t dlog_sink = NULL;
+
+void dlog_set_sink(dlog_sink_t sink) { dlog_sink = sink; }
+
 void dlog_init(void) {
     uart_init(DLOG_UART, 115200);
     gpio_set_function(DLOG_TX_PIN, GPIO_FUNC_UART);
@@ -54,13 +58,24 @@ int dlog_printf(const char *fmt, ...) {
 }
 
 void dlog_drain(void) {
+    uint8_t chunk[128];
+    uint32_t cn = 0;
     for (uint32_t ring = 0; ring < DLOG_NRING; ring++) {
         uint32_t t = dlog_tail[ring];
         uint32_t h = dlog_head[ring];
         while (t != h) {
-            uart_putc_raw(DLOG_UART, dlog_buf[ring][t]);
+            char c = dlog_buf[ring][t];
+            uart_putc_raw(DLOG_UART, c);
+            if (dlog_sink) {
+                chunk[cn++] = (uint8_t)c;
+                if (cn == sizeof(chunk)) {
+                    dlog_sink(chunk, cn);
+                    cn = 0;
+                }
+            }
             t = (t + 1u) & DLOG_MASK;
         }
         dlog_tail[ring] = t;
     }
+    if (dlog_sink && cn) dlog_sink(chunk, cn);
 }
