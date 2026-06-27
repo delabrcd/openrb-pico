@@ -12,7 +12,7 @@
 #define DLOG_RX_PIN 25
 
 #define DLOG_NRING 2     // one SPSC ring per core
-#define DLOG_SIZE 8192u  // per ring; must be a power of two
+#define DLOG_SIZE 16384u  // per ring; must be a power of two
 #define DLOG_MASK (DLOG_SIZE - 1u)
 
 // One lock-free SPSC ring per core. Each core only ever produces into its own

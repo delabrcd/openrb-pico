@@ -17,6 +17,7 @@
 #include "dlog.h"
 #include "drums.h"
 #include "hardware/dma.h"
+#include "hardware/structs/vreg_and_chip_reset.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "identifiers.h"
@@ -374,6 +375,17 @@ static void init() {
     // logs both drain through it deferred, so no synchronous stdio UART is set up.
     dlog_init();
     OPENRB_DEBUG("openrb debug console initialized...\r\n");
+
+    // Reset-cause instrumentation: what kind of reset brought us here?
+    {
+        uint32_t cr = vreg_and_chip_reset_hw->chip_reset;
+        OPENRB_DEBUG("RESET CAUSE: chip_reset=0x%08lx POR=%d RUN=%d PSM=%d wd_reboot=%d\r\n",
+                     (unsigned long)cr,
+                     !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_POR_BITS),
+                     !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_RUN_BITS),
+                     !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_PSM_RESTART_BITS),
+                     watchdog_caused_reboot());
+    }
 
     // Mirror the deferred log to a USB flash drive on the hub (usb_log). core0
     // pushes drained bytes into the ring here; core1 (which owns the USB host
