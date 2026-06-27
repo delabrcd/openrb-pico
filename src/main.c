@@ -3,6 +3,7 @@
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
 #include <hardware/uart.h>
+#include <host/hcd.h>
 #include <host/usbh.h>
 #include <pico/multicore.h>
 #include <pico/stdio.h>
@@ -84,10 +85,14 @@ static inline bool xboxh_send(const xbox_packet_t *buffer) {
 
 void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
     OPENRB_DEBUG("Controller %d Connected\r\n", instance);
-    if (xbox_controller_idx == UINT8_MAX) {
-        xbox_controller_idx = instance;
-        xbox_controller_addr = dev_addr;
-    }
+    // Always follow the most-recently-connected controller. On a replug the device
+    // gets a new instance/address (and, if the old umount is missed or races, the
+    // stale slot can linger), so adopting only when idx==UINT8_MAX would leave us
+    // forwarding from the wrong slot -- the controller re-enumerates (LED on) but
+    // its inputs get filtered by xboxh_packet_received_cb. We only track one active
+    // controller, so taking over on every mount is correct and replug-safe.
+    xbox_controller_idx = instance;
+    xbox_controller_addr = dev_addr;
 }
 
 void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
@@ -272,6 +277,44 @@ static void configure_host() {
 
 void core1_main(void);
 
+// Warm-reset controller recovery. On rev 0.2 nothing downstream loses power across
+// an RP2040 reset, so the hub + controller stay attached. hcd_pio_usb only fires an
+// attach on a connect *edge* (PIO_USB_INTS_CONNECT_BITS), so a device already
+// connected at boot (D+ already high -- no edge) is never enumerated and the
+// controller stays gone until a replug/power-cycle. So: if no controller has shown
+// up shortly after boot but the root port reports a device present, synthesize the
+// attach (level-based). usbh then resets the root port + enumerates the hub, and
+// hub.c's connection scan re-attaches the already-connected controller. core1 only
+// (it owns the host stack / hcd). A few tries, then give up.
+#define HOST_RECOVERY_FIRST_MS 1200u
+#define HOST_RECOVERY_RETRY_MS 1500u
+#define HOST_RECOVERY_MAX_ATTEMPTS 4u
+static void host_recovery_task(void) {
+    static bool inited = false;
+    static uint32_t base_us = 0;
+    static uint32_t next_ms = HOST_RECOVERY_FIRST_MS;
+    static uint8_t attempts = 0;
+    if (!inited) {
+        inited = true;
+        base_us = timer_hw->timerawl;
+    }
+    if (attempts >= HOST_RECOVERY_MAX_ATTEMPTS) return;
+    if (xbox_controller_idx != UINT8_MAX) {  // controller showed up -> done
+        attempts = HOST_RECOVERY_MAX_ATTEMPTS;
+        return;
+    }
+    uint32_t elapsed_ms = (uint32_t)(timer_hw->timerawl - base_us) / 1000u;
+    if (elapsed_ms < next_ms) return;
+    attempts++;
+    next_ms = elapsed_ms + HOST_RECOVERY_RETRY_MS;
+    bool connected = hcd_port_connect_status(HOST_CONTROLLER_ID);
+    OPENRB_DEBUG("host_recovery try %u/%u: root port connected=%d\r\n", attempts,
+                 HOST_RECOVERY_MAX_ATTEMPTS, connected);
+    if (connected) {
+        hcd_event_device_attach(HOST_CONTROLLER_ID, false);
+    }
+}
+
 // core1's first launch after a chip reset can be spuriously reset back into the
 // bootrom (PC=0x184) ~25-50ms in: an early-launch FIFO-handshake race in
 // multicore_launch_core1() if core0 launches before core1 has settled into the
@@ -292,7 +335,8 @@ void core1_main() {
     configure_host();
     while (true) {
         tuh_task();
-        usb_log_task();  // drain the log ring out to the USB flash drive
+        usb_log_task();        // drain the log ring out to the USB flash drive
+        host_recovery_task();  // re-attach a controller that survived a warm reset
     }
 }
 

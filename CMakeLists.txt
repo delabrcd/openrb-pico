@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.16)
 set(PICO_BOARD adafruit_feather_rp2040)
 set(PICO_SDK_PATH ${CMAKE_SOURCE_DIR}/external/pico-sdk)
 
+# Use our own vendored TinyUSB (delabrcd/tinyusb @ 0.20) instead of the one bundled
+# in pico-sdk, via the SDK's PICO_TINYUSB_PATH override. 0.20 brings the upstream
+# host control-transfer retry (USBH_CONTROL_RETRY_MAX). Must be set before
+# pico_sdk_init().
+set(PICO_TINYUSB_PATH ${CMAKE_SOURCE_DIR}/external/tinyusb)
+
 include(pico_sdk_import.cmake)
 include(cmake/AddBoardTarget.cmake)
 project(openrb-pico C CXX ASM)
@@ -13,6 +19,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
 set(PICO_PIO_USB_PATH external/Pico-PIO-USB)
+
+# TinyUSB 0.20's hw/bsp/rp2040/family.c (compiled into tinyusb_bsp) references
+# PICO_DEFAULT_PIO_USB_DP_PIN inside board_init(). We never call board_init() -- we
+# only use board_millis() -- so that's dead code; define the macro purely so it
+# compiles. The value (custom-board host D+ pin) is never actually used.
+add_compile_definitions(PICO_DEFAULT_PIO_USB_DP_PIN=16)
 
 # SET TUSB_DEBUG
 set(LOG 0)

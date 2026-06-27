@@ -67,8 +67,7 @@ flash/reset via the `ORB_BOARD` env var or a positional arg: `scripts/flash.sh F
 
 | script | what it does |
 |--------|--------------|
-| `build.sh [clean]` | submodules → apply patches → cmake configure (cached) → build. `clean` wipes `build/` first. |
-| `apply-patches.sh` | idempotently applies the two submodule patches (`patches/`). Called by `build.sh`. |
+| `build.sh [clean]` | submodules → cmake configure (cached) → build. `clean` wipes `build/` first. |
 | `flash.sh [BOARD]` | halts both cores, then `program …verify reset` of `build/openrb-pico_<BOARD>.elf`. |
 | `reset.sh` | marks the UART log, then SWD `reset run`. |
 | `uart.sh [N]` | read the monitor log: no arg follows it live; `N` prints the last N lines. |
