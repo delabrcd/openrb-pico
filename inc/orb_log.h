@@ -32,9 +32,13 @@ extern "C" {
 #define ORB_LOG_LEVEL LOG_LEVEL_DEBUG
 #endif
 
-// Inline ANSI color for the UART sink (stripped before LOG.TXT by usb_log).
+// Inline ANSI color in the log stream. Default OFF: the firmware emits PLAIN text so
+// both persisted sinks (the .mon/uart.log capture and LOG.TXT on the stick) stay clean
+// and greppable. Color is applied host-side at view time by scripts/uart.sh, which
+// colorizes by level only when writing to a terminal. Set to 1 to bake SGR codes into
+// the UART stream instead (usb_log still strips them before LOG.TXT).
 #ifndef ORB_LOG_COLOR
-#define ORB_LOG_COLOR 1
+#define ORB_LOG_COLOR 0
 #endif
 
 // --- Categories --------------------------------------------------------------
