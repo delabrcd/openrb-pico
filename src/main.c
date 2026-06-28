@@ -3,7 +3,6 @@
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
 #include <hardware/uart.h>
-#include <host/hcd.h>
 #include <host/usbh.h>
 #include <pico/multicore.h>
 #include <pico/stdio.h>
@@ -18,6 +17,7 @@
 #include "drums.h"
 #include "hardware/dma.h"
 #include "hardware/structs/vreg_and_chip_reset.h"
+#include "hardware/structs/watchdog.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "identifiers.h"
@@ -38,6 +38,14 @@ volatile adapter_state_t adapter_state = STATE_NONE;
 
 static volatile uint8_t xbox_controller_idx = UINT8_MAX;
 static volatile uint8_t xbox_controller_addr = UINT8_MAX;
+// True once the mounted controller actually sends a packet (heartbeat/input). A
+// controller that survived a warm reset can mount but stay a "zombie" -- enumerated
+// yet silent (no heartbeat, LED off). This is the real liveness signal, not mount.
+static volatile bool g_controller_alive = false;
+// True once any controller has mounted this boot. Distinguishes a zombie (mounted
+// but silent -> worth a recovery reboot) from no controller plugged in at all (don't
+// reboot -- a controller is only needed to establish auth, not to keep running).
+static volatile bool g_controller_seen = false;
 
 static xbox_packet_t out_packet;
 
@@ -86,6 +94,7 @@ static inline bool xboxh_send(const xbox_packet_t *buffer) {
 
 void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
     OPENRB_DEBUG("Controller %d Connected\r\n", instance);
+    g_controller_seen = true;  // a controller mounted this boot (may still be a zombie)
     // Always follow the most-recently-connected controller. On a replug the device
     // gets a new instance/address (and, if the old umount is missed or races, the
     // stale slot can linger), so adopting only when idx==UINT8_MAX would leave us
@@ -102,6 +111,7 @@ void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
     if (instance == xbox_controller_idx) {
         xbox_controller_idx = UINT8_MAX;
         xbox_controller_addr = UINT8_MAX;
+        g_controller_alive = false;  // require a fresh heartbeat from the next mount
     }
 }
 
@@ -123,6 +133,7 @@ void handle_controller_packet_running(const xbox_packet_t *data) {
 void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
     if (idx != xbox_controller_idx) return;
     if (ndata < sizeof(frame_t)) return;
+    g_controller_alive = true;  // a real packet arrived -> controller is alive, not a zombie
     OPENRB_DEBUG("IN FROM CONTROLLER: %s\r\n", get_command_name(data->frame.command));
     switch (adapter_state) {
         case STATE_AUTHENTICATING:
@@ -278,44 +289,6 @@ static void configure_host() {
 
 void core1_main(void);
 
-// Warm-reset controller recovery. On rev 0.2 nothing downstream loses power across
-// an RP2040 reset, so the hub + controller stay attached. hcd_pio_usb only fires an
-// attach on a connect *edge* (PIO_USB_INTS_CONNECT_BITS), so a device already
-// connected at boot (D+ already high -- no edge) is never enumerated and the
-// controller stays gone until a replug/power-cycle. So: if no controller has shown
-// up shortly after boot but the root port reports a device present, synthesize the
-// attach (level-based). usbh then resets the root port + enumerates the hub, and
-// hub.c's connection scan re-attaches the already-connected controller. core1 only
-// (it owns the host stack / hcd). A few tries, then give up.
-#define HOST_RECOVERY_FIRST_MS 1200u
-#define HOST_RECOVERY_RETRY_MS 1500u
-#define HOST_RECOVERY_MAX_ATTEMPTS 4u
-static void host_recovery_task(void) {
-    static bool inited = false;
-    static uint32_t base_us = 0;
-    static uint32_t next_ms = HOST_RECOVERY_FIRST_MS;
-    static uint8_t attempts = 0;
-    if (!inited) {
-        inited = true;
-        base_us = timer_hw->timerawl;
-    }
-    if (attempts >= HOST_RECOVERY_MAX_ATTEMPTS) return;
-    if (xbox_controller_idx != UINT8_MAX) {  // controller showed up -> done
-        attempts = HOST_RECOVERY_MAX_ATTEMPTS;
-        return;
-    }
-    uint32_t elapsed_ms = (uint32_t)(timer_hw->timerawl - base_us) / 1000u;
-    if (elapsed_ms < next_ms) return;
-    attempts++;
-    next_ms = elapsed_ms + HOST_RECOVERY_RETRY_MS;
-    bool connected = hcd_port_connect_status(HOST_CONTROLLER_ID);
-    OPENRB_DEBUG("host_recovery try %u/%u: root port connected=%d\r\n", attempts,
-                 HOST_RECOVERY_MAX_ATTEMPTS, connected);
-    if (connected) {
-        hcd_event_device_attach(HOST_CONTROLLER_ID, false);
-    }
-}
-
 // core1's first launch after a chip reset can be spuriously reset back into the
 // bootrom (PC=0x184) ~25-50ms in: an early-launch FIFO-handshake race in
 // multicore_launch_core1() if core0 launches before core1 has settled into the
@@ -337,7 +310,6 @@ void core1_main() {
     while (true) {
         tuh_task();
         usb_log_task();        // drain the log ring out to the USB flash drive
-        host_recovery_task();  // re-attach a controller that survived a warm reset
     }
 }
 
@@ -365,6 +337,60 @@ static void reset_usb_hub(void) {
 #endif
 }
 
+// Bounded auto-reboot warm-reset recovery, gated on authentication. A controller
+// frozen across a warm reset can mount but stay a "zombie" -- enumerated yet silent
+// (no heartbeat, LED off). Recovery is probabilistic, so we watchdog-reboot and retry
+// until it comes back live (lands a functional controller within a reboot or two).
+//
+// The retry runs ONLY before auth: a controller is required to establish auth (and to
+// re-establish it after an Xbox-initiated reset), so a zombie -- or a controller lost
+// part-way through auth -- should be recovered. Once authenticated the controller is
+// optional (the user may unplug it freely, drum input comes over serial), so we disarm
+// and never reboot again. If nothing ever mounts there's no controller to recover, so
+// we don't reboot then either. The attempt count rides through our watchdog reboots
+// (scratch[7]) but resets on a fresh power-on / physical reset, so we never loop forever.
+#define RECOV_SCRATCH 7u  // scratch[4..6] are used by the SDK/bootrom watchdog path; [7] is free with pc=0 reboots
+#define RECOV_MAGIC 0x5A5A0000u
+#define RECOV_MAX 4u
+#define RECOV_SILENT_MS 3000u  // a mounted-but-silent controller this long is a zombie
+static uint32_t g_recov_count = 0;
+
+static void recovery_reboot_task(void) {
+    static bool disarmed = false;
+    static uint32_t silent_since_ms = 0;  // 0 = not currently tracking a silence period
+    if (disarmed) return;
+
+    if (adapter_state >= STATE_RUNNING) {  // authenticated -> controller now optional
+        disarmed = true;
+        watchdog_hw->scratch[RECOV_SCRATCH] = 0;  // clear so the next reset starts fresh
+        if (g_recov_count) OPENRB_DEBUG("RECOVERY: authenticated after %lu reboot(s)\r\n",
+                                        (unsigned long)g_recov_count);
+        return;
+    }
+    if (g_controller_alive) { silent_since_ms = 0; return; }  // live -> healthy, nothing to do
+    if (!g_controller_seen)  { silent_since_ms = 0; return; }  // none present -> nothing to recover
+
+    // A controller mounted but isn't sending a heartbeat (zombie, or lost before auth).
+    // Debounce a brief blip (re-enumeration) before acting.
+    uint32_t now = board_millis();
+    if (silent_since_ms == 0) silent_since_ms = now ? now : 1u;
+    if ((uint32_t)(now - silent_since_ms) < RECOV_SILENT_MS) return;
+
+    if (g_recov_count >= RECOV_MAX) {  // a zombie that won't thaw across retries
+        disarmed = true;
+        watchdog_hw->scratch[RECOV_SCRATCH] = 0;
+        OPENRB_DEBUG("RECOVERY: controller stayed silent after %u reboots; replug needed\r\n", RECOV_MAX);
+        return;
+    }
+    // Probabilistic: reboot and try again -- a later attempt usually lands a live one.
+    watchdog_hw->scratch[RECOV_SCRATCH] = RECOV_MAGIC | (g_recov_count + 1u);
+    OPENRB_DEBUG("RECOVERY: controller silent pre-auth -> watchdog reboot %lu/%u\r\n",
+                 (unsigned long)(g_recov_count + 1u), RECOV_MAX);
+    dlog_drain();  // flush the log before we go
+    watchdog_reboot(0, 0, 0);
+    while (1) tight_loop_contents();
+}
+
 static void init() {
     // 120 MHz (no overclock): with upstream Pico-PIO-USB (post-0.7.2 bus-turnaround
     // / handshake timing fixes), the controller enumerates reliably through the
@@ -385,6 +411,18 @@ static void init() {
                      !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_RUN_BITS),
                      !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_PSM_RESTART_BITS),
                      watchdog_caused_reboot());
+
+        // Recover our auto-reboot attempt count: only trust the scratch register if
+        // *we* triggered this reboot via watchdog. A power-on / physical reset clears
+        // it to 0 so the user always gets a fresh recovery budget.
+        if (watchdog_caused_reboot() &&
+            (watchdog_hw->scratch[RECOV_SCRATCH] & 0xFFFF0000u) == RECOV_MAGIC) {
+            g_recov_count = watchdog_hw->scratch[RECOV_SCRATCH] & 0xFFFFu;
+        } else {
+            g_recov_count = 0;
+        }
+        watchdog_hw->scratch[RECOV_SCRATCH] = 0;
+        OPENRB_DEBUG("RECOVERY: attempt count = %lu\r\n", (unsigned long)g_recov_count);
     }
 
     // Mirror the deferred log to a USB flash drive on the hub (usb_log). core0
@@ -424,6 +462,7 @@ int main() {
         announce_task();
         xboxd_send_task();
         drum_task();
+        recovery_reboot_task();  // warm-reset recovery: auto-reboot a zombie until it's live
         dlog_drain();
     }
 }
