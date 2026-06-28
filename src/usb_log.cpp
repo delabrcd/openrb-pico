@@ -5,7 +5,7 @@
 
 #include "ff.h"       // must precede diskio.h (provides BYTE/UINT/LBA_t)
 #include "diskio.h"
-#include "hardware/timer.h"
+#include "hal/platform.hpp"  // orb::hal::Clock (replaces direct timer_hw access)
 #include "orb_log.h"
 #include "core/spsc_ring.hpp"
 // Vendored tusb_types.h trips -Wextra (enum/non-enum ternary) under C++; it was silent
@@ -70,6 +70,7 @@ static bool s_enabled = true;
 static FATFS s_fatfs;
 static FIL s_file;
 static uint32_t s_last_sync_us;
+static orb::hal::Clock s_clock;  // trivially constructible -> no global ctor
 static TU_ATTR_ALIGNED(4) uint8_t s_chunk[512];  // drain buffer (USB transfer src)
 
 void usb_log_set_enabled(bool enabled) { s_enabled = enabled; }
@@ -109,7 +110,7 @@ void usb_log_task(void) {
             return;
         }
         s_fs_ready = true;
-        s_last_sync_us = timer_hw->timerawl;
+        s_last_sync_us = s_clock.now_us();
     }
 
     // Drain one contiguous run (up to s_chunk) per call; the loop comes back next tick.
@@ -131,7 +132,7 @@ void usb_log_task(void) {
 
     // Periodic flush so the on-disk file size/FAT are updated and a pulled stick is
     // readable up to ~1 s ago.
-    uint32_t now = timer_hw->timerawl;
+    uint32_t now = s_clock.now_us();
     if ((uint32_t)(now - s_last_sync_us) > 1000000u) {
         f_sync(&s_file);
         s_last_sync_us = now;
