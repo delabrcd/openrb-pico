@@ -75,10 +75,10 @@ void serial_midi_init() {
     gpio_set_function(MIDI_UART_TX, GPIO_FUNC_UART);
     gpio_set_function(MIDI_UART_RX, GPIO_FUNC_UART);
 
-    // NB: keep uart_init out of the OPENRB_DEBUG(...) argument — when debug is
-    // disabled the macro expands to nothing and the UART would never initialize.
+    // NB: keep uart_init out of the log-macro argument — when the level is compiled
+    // out the macro expands to nothing and the UART would never initialize.
     uint actual_baud = uart_init(MIDI_UART, 31250);
-    OPENRB_DEBUG("uart baud: %u\r\n", actual_baud);
+    LOG_INFO(CAT_MIDI, "uart baud: %u", actual_baud);
 
     setup_disconnect_timer();
 }
@@ -126,7 +126,7 @@ int __not_in_flash_func(serial_midi_read)(uint8_t* buf) {
         }
 
         if (count >= 3) {
-            OPENRB_DEBUG("Found Note On\r\n");
+            LOG_TRC(CAT_MIDI, "serial midi msg");
             memcpy(buf, note_on_message, 3);
             count = 1;
             return 3;
