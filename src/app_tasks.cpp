@@ -1,10 +1,10 @@
 /*
- * Centralised FreeRTOS task creation. Each long-lived task gets a StaticTask<>
+ * Centralised FreeRTOS task creation. Each long-lived task gets an orb::osal::Task<>
  * instance (owns its stack + TCB) and is pinned to a core here. The superloop has been
  * split into per-concern tasks; add instances below rather than repeating the
  * static-buffer boilerplate at each call site.
  */
-#include "static_task.hpp"
+#include "osal/task.hpp"
 
 #include "app_tasks.h"
 
@@ -25,10 +25,10 @@ static constexpr size_t kUsbDeviceStackWords = 1536;
 static constexpr size_t kDrumInputStackWords = 1024;
 static constexpr size_t kHousekeepingStackWords = 768;
 
-static orb::StaticTask<kUsbHostStackWords> s_usb_host_task;
-static orb::StaticTask<kUsbDeviceStackWords> s_usb_device_task;
-static orb::StaticTask<kDrumInputStackWords> s_drum_input_task;
-static orb::StaticTask<kHousekeepingStackWords> s_housekeeping_task;
+static orb::osal::Task<kUsbHostStackWords> s_usb_host_task;
+static orb::osal::Task<kUsbDeviceStackWords> s_usb_device_task;
+static orb::osal::Task<kDrumInputStackWords> s_drum_input_task;
+static orb::osal::Task<kHousekeepingStackWords> s_housekeeping_task;
 
 extern "C" void app_start_tasks(void) {
     s_usb_host_task.start("usb_host", usb_host_task, nullptr, kUsbTaskPriority, kCore1Affinity);

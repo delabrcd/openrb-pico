@@ -1,18 +1,23 @@
 /*
- * SoftwareTimer — a tiny RAII wrapper that owns a FreeRTOS software timer's control
+ * osal (OS Abstraction Layer): this header is part of the firmware's ONLY dependency on
+ * FreeRTOS. inc/osal/ is the portability boundary — only this osal layer (and the hal layer) may
+ * include FreeRTOS/pico-sdk; the rest of the codebase uses orb::osal::* and never touches
+ * the RTOS directly. Porting to another RTOS means rewriting inc/osal/, nothing else.
+ *
+ * orb::osal::Timer — a tiny RAII wrapper that owns a FreeRTOS software timer's control
  * block (StaticTimer_t) and creates it statically (no heap), the sibling of
- * StaticTask<N> (inc/static_task.hpp) and StaticQueue<T,Depth> (inc/static_queue.hpp).
+ * orb::osal::Task<N> (inc/osal/task.hpp) and orb::osal::Queue<T,Depth> (inc/osal/queue.hpp).
  * It removes the "declare a StaticTimer_t + a TimerHandle_t + call xTimerCreateStatic +
  * keep the handle around for xTimerChangePeriod" boilerplate that src/midi.c repeated
  * for its drum-disconnect timer (see docs/features/cpp-overhaul.md D1).
  *
- * Same discipline as StaticTask/StaticQueue: the storage member is the FreeRTOS
+ * Same discipline as Task/Queue: the storage member is the FreeRTOS
  * StaticTimer_t buffer, construction does nothing kernel-touching (constant-initialized
  * -> lands in BSS, no global ctor / static-init-order concern), and create() does the actual
  * xTimerCreateStatic once the kernel is up enough. Give each instance static storage
  * duration (it must outlive the timer).
  *
- *   static SoftwareTimer s_disconnect_timer;
+ *   static orb::osal::Timer s_disconnect_timer;
  *   s_disconnect_timer.create("midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES),
  *                             false, on_disconnect_timeout_cb);  // false == one-shot
  *   s_disconnect_timer.change_period(pdMS_TO_TICKS(ONE_SECOND), 0);  // re-arm, no block
@@ -22,15 +27,15 @@
  * pvTimerGetTimerID(handle) / id() retrieve the stashed void* id if the callback needs
  * to find per-timer state through the handle rather than a file-static.
  */
-#ifndef OPENRB_SOFTWARE_TIMER_HPP
-#define OPENRB_SOFTWARE_TIMER_HPP
+#ifndef OPENRB_OSAL_TIMER_HPP
+#define OPENRB_OSAL_TIMER_HPP
 
 #include "FreeRTOS.h"
 #include "timers.h"
 
-namespace orb {
+namespace orb::osal {
 
-class SoftwareTimer {
+class Timer {
    public:
     // Create the timer. Call once, before/while the scheduler runs. Never null for a
     // static create. `auto_reload` true == periodic, false == one-shot (matches the
@@ -59,6 +64,6 @@ class SoftwareTimer {
     TimerHandle_t handle_ = nullptr;
 };
 
-}  // namespace orb
+}  // namespace orb::osal
 
-#endif  // OPENRB_SOFTWARE_TIMER_HPP
+#endif  // OPENRB_OSAL_TIMER_HPP

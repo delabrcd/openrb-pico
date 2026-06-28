@@ -1,7 +1,7 @@
 /*
  * Task bootstrap for the FreeRTOS SMP port. The task *bodies* live in their feature
  * modules (C); the *creation* (stack/TCB storage + affinity) is centralised in
- * app_tasks.cpp via the StaticTask<> template. main() calls app_start_tasks() then
+ * app_tasks.cpp via the orb::osal::Task<> template. main() calls app_start_tasks() then
  * vTaskStartScheduler().
  */
 #ifndef OPENRB_APP_TASKS_H

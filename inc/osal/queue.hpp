@@ -1,24 +1,29 @@
 /*
- * StaticQueue<T, Depth> — a tiny RAII wrapper that owns a FreeRTOS queue's storage +
- * control block and creates it statically (no heap), the sibling of StaticTask<N>
- * (inc/static_task.hpp). It removes the "declare a uint8_t storage[] + a StaticQueue_t +
+ * osal (OS Abstraction Layer): this header is part of the firmware's ONLY dependency on
+ * FreeRTOS. inc/osal/ is the portability boundary — only this osal layer (and the hal layer) may
+ * include FreeRTOS/pico-sdk; the rest of the codebase uses orb::osal::* and never touches
+ * the RTOS directly. Porting to another RTOS means rewriting inc/osal/, nothing else.
+ *
+ * orb::osal::Queue<T, Depth> — a tiny RAII wrapper that owns a FreeRTOS queue's storage +
+ * control block and creates it statically (no heap), the sibling of orb::osal::Task<N>
+ * (inc/osal/task.hpp). It removes the "declare a uint8_t storage[] + a StaticQueue_t +
  * call xQueueCreateStatic + keep a QueueHandle_t" boilerplate that app_queues repeated
  * per queue (see docs/features/cpp-overhaul.md D1).
  *
- * Same discipline as StaticTask: storage members are the FreeRTOS Static*_t buffers,
+ * Same discipline as Task: storage members are the FreeRTOS Static*_t buffers,
  * construction does nothing kernel-touching (trivial type, lands in BSS, no global-ctor
  * / static-init-order concern), and create() does the actual xQueueCreateStatic once
  * the kernel is up enough. Give each instance static storage duration.
  *
- *   static StaticQueue<xbox_packet_t, 8> host_tx;
+ *   static orb::osal::Queue<xbox_packet_t, 8> host_tx;
  *   host_tx.create();
  *   if (!host_tx.send(pkt)) { ... full ... }   // non-blocking, matches app_queues
  *
  * send()/recv() are non-blocking (timeout 0) to match the existing app_queues semantics
  * exactly; add explicit timed variants only if a caller needs to block.
  */
-#ifndef OPENRB_STATIC_QUEUE_HPP
-#define OPENRB_STATIC_QUEUE_HPP
+#ifndef OPENRB_OSAL_QUEUE_HPP
+#define OPENRB_OSAL_QUEUE_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -27,12 +32,12 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 
-namespace orb {
+namespace orb::osal {
 
 template <typename T, size_t Depth>
-class StaticQueue {
+class Queue {
     static_assert(std::is_trivially_copyable<T>::value,
-                  "StaticQueue<T>: T must be trivially copyable (FreeRTOS moves items by memcpy)");
+                  "Queue<T>: T must be trivially copyable (FreeRTOS moves items by memcpy)");
 
    public:
     // Create the queue. Call once, before/while the scheduler runs. Never null for a
@@ -54,6 +59,6 @@ class StaticQueue {
     QueueHandle_t handle_ = nullptr;
 };
 
-}  // namespace orb
+}  // namespace orb::osal
 
-#endif  // OPENRB_STATIC_QUEUE_HPP
+#endif  // OPENRB_OSAL_QUEUE_HPP

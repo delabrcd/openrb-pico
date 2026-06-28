@@ -1,9 +1,14 @@
 /*
- * Mutex / ScopedLock — a tiny RAII wrapper that owns a FreeRTOS mutex's control block
- * (StaticSemaphore_t) and creates it statically (no heap), plus a scope-guard that
- * take()s on construction and give()s on destruction. Sibling of StaticTask<N>
- * (inc/static_task.hpp), StaticQueue<T,Depth> (inc/static_queue.hpp) and SoftwareTimer
- * (inc/software_timer.hpp); see docs/features/cpp-overhaul.md D1.
+ * osal (OS Abstraction Layer): this header is part of the firmware's ONLY dependency on
+ * FreeRTOS. inc/osal/ is the portability boundary — only this osal layer (and the hal layer) may
+ * include FreeRTOS/pico-sdk; the rest of the codebase uses orb::osal::* and never touches
+ * the RTOS directly. Porting to another RTOS means rewriting inc/osal/, nothing else.
+ *
+ * orb::osal::Mutex / orb::osal::ScopedLock — a tiny RAII wrapper that owns a FreeRTOS
+ * mutex's control block (StaticSemaphore_t) and creates it statically (no heap), plus a
+ * scope-guard that take()s on construction and give()s on destruction. Sibling of
+ * orb::osal::Task<N> (inc/osal/task.hpp), orb::osal::Queue<T,Depth> (inc/osal/queue.hpp)
+ * and orb::osal::Timer (inc/osal/timer.hpp); see docs/features/cpp-overhaul.md D1.
  *
  * Same discipline as the other wrappers: the storage member is the FreeRTOS
  * StaticSemaphore_t buffer, construction does nothing kernel-touching (constant-initialized
@@ -11,7 +16,7 @@
  * actual xSemaphoreCreateMutexStatic once the kernel is up enough. Give each instance
  * static storage duration.
  *
- *   static Mutex s_lock;
+ *   static orb::osal::Mutex s_lock;
  *   s_lock.create();
  *   ...
  *   {
@@ -21,18 +26,18 @@
  *
  * NB (per spec): this is a foundational wrapper. It is intentionally NOT wired into the
  * device TX fifo this phase — whether that multi-writer path stays a tu_fifo+OSAL mutex,
- * a guarded StaticQueue, or is restructured is an open design question (cpp-overhaul.md
+ * a guarded Queue, or is restructured is an open design question (cpp-overhaul.md
  * D3, open Q1). This header just provides the primitive, correctly.
  *
  * No heap, no exceptions: take()/give() report success by bool; failures are not thrown.
  */
-#ifndef OPENRB_MUTEX_HPP
-#define OPENRB_MUTEX_HPP
+#ifndef OPENRB_OSAL_MUTEX_HPP
+#define OPENRB_OSAL_MUTEX_HPP
 
 #include "FreeRTOS.h"
 #include "semphr.h"
 
-namespace orb {
+namespace orb::osal {
 
 class Mutex {
    public:
@@ -80,6 +85,6 @@ class ScopedLock {
     bool held_;
 };
 
-}  // namespace orb
+}  // namespace orb::osal
 
-#endif  // OPENRB_MUTEX_HPP
+#endif  // OPENRB_OSAL_MUTEX_HPP
