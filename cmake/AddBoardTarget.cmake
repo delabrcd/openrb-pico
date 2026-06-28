@@ -27,8 +27,14 @@ function(add_board_target PROJECT_NAME BOARD_NAME SOURCES)
     #   -fno-rtti : no dynamic_cast/typeid in this codebase; drops type_info tables.
     #   -fno-threadsafe-statics : function-local statics otherwise emit __cxa_guard_*
     #       calls (a hidden lock) -- unacceptable on core1. Audit any new local static.
+    #   -Wno-volatile : C++20 deprecates compound ops (v++ / v += x) on volatile-qualified
+    #       types; the VENDORED FreeRTOS portmacro.h does this in its critical-section
+    #       macros, so every C++ TU including FreeRTOS.h would warn. Our own code never
+    #       uses volatile compound-ops (cross-core state is plain single load/store), so
+    #       this only silences vendored noise. (A cleaner fix is marking the kernel
+    #       includes -isystem; revisit in P6.)
     target_compile_options(${TARGET_NAME} PRIVATE
-        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti -fno-threadsafe-statics>)
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti -fno-threadsafe-statics -Wno-volatile>)
 
     target_compile_definitions(${TARGET_NAME} PUBLIC ${COMMON_COMPILE_DEFS} -DORB_BOARD_ID=ORB_BOARD_ID_${BOARD_NAME})
     target_link_libraries(${TARGET_NAME} PUBLIC pico_pio_usb tinyusb_bsp tinyusb_host tinyusb_device usb_midi_host
