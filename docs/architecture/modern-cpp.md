@@ -29,10 +29,21 @@ layer becomes hardware-free, testable on a host, and written in modern C++.
    (`std::span`), no index-for where a range-for or algorithm fits, no function pointers
    in app code (non-owning `function_ref` / owning `inplace_function`), `enum class`,
    RAII, `[[nodiscard]]`, `constexpr`/`constinit` where it buys safety.
-5. **The C seam is thin and one-directional.** TinyUSB/FreeRTOS call *into* us through a
-   fixed set of `extern "C"` symbols (`tu*_cb`, task entries, diskio, hooks). Those stay
-   C-linkage shims that immediately forward into a C++ object. We never expose a C API
-   *upward* into the logic.
+5. **`extern "C"` exists ONLY at the vendor/RTOS callback seam — never between our own
+   modules.** TinyUSB/FreeRTOS/FatFs call *into* us through a fixed set of C-linkage
+   symbols (`tu*_cb`, the `TaskFunction_t` task entries, `disk_*`, the FreeRTOS hooks,
+   the timer callback). Those — and only those — stay thin `extern "C"` shims that forward
+   into a C++ object. Our modules talk to **each other in C++**: a clean header exposes a
+   class / namespaced free functions taking `std::span`/references/`Result`, and callers
+   use it directly. There are **no internal `extern "C"` facades** kept around to let a C
+   call site keep compiling.
+6. **The conversion is destructive; do not preserve C call sites.** Design the new clean
+   C++ interface, convert the consumers to C++ (`.c` → `.cpp`, including `main`), and let
+   the build break during the transition — it converges to all-C++. Do NOT add an
+   `extern "C"` facade or keep an old C signature alive just to avoid touching a caller;
+   touch the caller. (Earlier P3 modules that shipped with a transitional facade —
+   adapter_ctx, instrument_manager — get those facades removed as their consumers become
+   C++; the facade was scaffolding, not the destination.)
 6. **Zero runtime cost for the abstraction.** The HAL is compile-time-bound (concepts +
    a platform-selected concrete type), not virtual — one MCU per build, so a vtable
    indirection on the SOF/endpoint hot path buys nothing. Runtime polymorphism only
