@@ -109,6 +109,13 @@ static void __not_in_flash_func(update_drum_state_with_midi_input)(
 // resting/unknown pedal maps to the default yellow-cymbal lane.
 static bool g_hh_open = false;
 
+// Catch a manual misconfig at build time: threshold +/- hysteresis must stay within
+// 0..127, else the open or close transition can never be reached. Relax/remove when these
+// move to the runtime configurator (which validates its inputs).
+_Static_assert(ORB_HIHAT_HYST <= ORB_HIHAT_THRESHOLD &&
+                   ORB_HIHAT_THRESHOLD + ORB_HIHAT_HYST <= 127,
+               "hi-hat threshold +/- hysteresis must stay within 0..127");
+
 // Membership test over the configured hi-hat strike-note set.
 static bool is_hihat_note(uint8_t note) {
     static const uint8_t hihat_notes[] = ORB_HIHAT_NOTES;
@@ -158,7 +165,11 @@ static void control_change(uint8_t controller, uint8_t value) {
         }
     }
 #endif
-    LOG_INFO(CAT_DRUM, "CC %u = %u", controller, value);
+#if ORB_HIHAT_MODE == 1
+    LOG_INFO(CAT_DRUM, "CC %u = %u", controller, value);  // discovery: visible by default
+#else
+    LOG_TRC(CAT_DRUM, "CC %u = %u", controller, value);   // mode 2: off at the default floor
+#endif
 }
 #endif
 

@@ -54,9 +54,10 @@ int dlog_printf(const char *fmt, ...) {
     uint32_t len = (n < (int)sizeof(tmp)) ? (uint32_t)n : (uint32_t)sizeof(tmp) - 1u;
     if (ring == 0u) {
         // core0 is multi-producer: mask THIS core's interrupts so a higher-priority core0
-        // task can't preempt and interleave mid-write. This is core0-only and sub-
-        // microsecond; it touches only core0's PRIMASK (no cross-core spinlock) so it
-        // never stalls core1 or its PIO-USB timing.
+        // task can't preempt and interleave mid-write. The masked region is one ring write
+        // (a bounded copy of up to ~160 bytes -- a few microseconds of core0 interrupt
+        // latency under chatty logging); it touches only core0's PRIMASK (no cross-core
+        // spinlock), so it never stalls core1 or its PIO-USB timing.
         uint32_t irq = save_and_disable_interrupts();
         s_ring[0].write(tmp, len);
         restore_interrupts(irq);

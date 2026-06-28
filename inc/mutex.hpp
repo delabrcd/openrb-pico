@@ -6,8 +6,8 @@
  * (inc/software_timer.hpp); see docs/features/cpp-overhaul.md D1.
  *
  * Same discipline as the other wrappers: the storage member is the FreeRTOS
- * StaticSemaphore_t buffer, construction does nothing kernel-touching (trivial type,
- * lands in BSS, no global-ctor / static-init-order concern), and create() does the
+ * StaticSemaphore_t buffer, construction does nothing kernel-touching (constant-initialized
+ * -> lands in BSS, no global ctor / static-init-order concern), and create() does the
  * actual xSemaphoreCreateMutexStatic once the kernel is up enough. Give each instance
  * static storage duration.
  *

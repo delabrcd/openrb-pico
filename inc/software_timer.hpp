@@ -7,8 +7,8 @@
  * for its drum-disconnect timer (see docs/features/cpp-overhaul.md D1).
  *
  * Same discipline as StaticTask/StaticQueue: the storage member is the FreeRTOS
- * StaticTimer_t buffer, construction does nothing kernel-touching (trivial type, lands
- * in BSS, no global-ctor / static-init-order concern), and create() does the actual
+ * StaticTimer_t buffer, construction does nothing kernel-touching (constant-initialized
+ * -> lands in BSS, no global ctor / static-init-order concern), and create() does the actual
  * xTimerCreateStatic once the kernel is up enough. Give each instance static storage
  * duration (it must outlive the timer).
  *
