@@ -54,8 +54,8 @@ static bool _xboxd_send(uint8_t itf, uint8_t *report, uint8_t len) {
 bool xboxd_send(xbox_packet_t *packet) {
     if (!_xinputd_itf[0].ep_in) return false;
 
-    OPENRB_DEBUG("sending %s size: %d\r\n", get_command_name(packet->frame.command),
-                 packet->length);
+    LOG_TRC(CAT_DEV, "sending %s size: %d", get_command_name(packet->frame.command),
+            packet->length);
 
     return _xboxd_send(0, packet->buffer, packet->length);
 }
@@ -71,7 +71,7 @@ bool xboxd_send_task() {
     TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
 
     if (!xboxd_send(pkt)) {
-        OPENRB_DEBUG("FAILED TO SEND %s\r\n", get_command_name(pkt->frame.command));
+        LOG_ERR(CAT_DEV, "FAILED TO SEND %s", get_command_name(pkt->frame.command));
         usbd_edpt_release(0, _xinputd_itf[0].ep_in);
     }
     return true;
@@ -89,7 +89,7 @@ void xboxd_init(void) {
 // plug it in. I'm assuming its just inrush but we gotta reset ourselves gracefully anyways to
 // recover - currently this doesn't work but should once the reset_controller function is fixed
 void xboxd_reset(uint8_t rhport) {
-    OPENRB_DEBUG("Resetting Device\r\n");
+    LOG_INFO(CAT_DEV, "Resetting Device");
     (void)rhport;
     tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
     _xinputd_itf[0].epin_buf.handled = 1;
@@ -237,9 +237,8 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
     }
 
     if (ep_addr == p_xinput->ep_out) {
-        OPENRB_DEBUG("IN (%s): ", get_command_name(p_xinput->epout_buf.frame.command));
-        OPENRB_DEBUG_BUF(p_xinput->epout_buf.buffer, xferred_bytes);
-        OPENRB_DEBUG("\n");
+        LOG_TRC(CAT_DEV, "IN (%s)", get_command_name(p_xinput->epout_buf.frame.command));
+        LOG_HEXDUMP(CAT_DEV, LOG_LEVEL_TRACE, p_xinput->epout_buf.buffer, xferred_bytes);
 
         p_xinput->epout_buf.length = xferred_bytes;
         if (xboxd_packet_received_cb)
@@ -248,9 +247,8 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
                                  sizeof(p_xinput->epout_buf.buffer)));
 
     } else if (ep_addr == p_xinput->ep_in) {
-        OPENRB_DEBUG("OUT (%s): ", get_command_name(p_xinput->epin_buf.frame.command));
-        OPENRB_DEBUG_BUF(p_xinput->epin_buf.buffer, xferred_bytes);
-        OPENRB_DEBUG("\n");
+        LOG_TRC(CAT_DEV, "OUT (%s)", get_command_name(p_xinput->epin_buf.frame.command));
+        LOG_HEXDUMP(CAT_DEV, LOG_LEVEL_TRACE, p_xinput->epin_buf.buffer, xferred_bytes);
         p_xinput->epin_buf.handled = 1;
     }
     return true;
