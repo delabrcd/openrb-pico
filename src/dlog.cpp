@@ -7,7 +7,7 @@
 #include "hardware/structs/sio.h"
 #include "hardware/sync.h"
 #include "hardware/uart.h"
-#include "spsc_ring.hpp"
+#include "core/spsc_ring.hpp"
 
 #define DLOG_UART uart1
 #define DLOG_TX_PIN 24
@@ -30,7 +30,7 @@
 //     drum_input, housekeeping) plus the FreeRTOS hooks and init/recovery paths all log.
 //     A context switch mid-write() would interleave two producers and regress head_, so
 //     dlog_printf serializes the core0 write by masking THIS core's interrupts (below).
-static orb::SpscRing<char, DLOG_SIZE> s_ring[DLOG_NRING];
+static orb::core::SpscRing<char, DLOG_SIZE> s_ring[DLOG_NRING];
 
 static dlog_sink_t dlog_sink = nullptr;
 

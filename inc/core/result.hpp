@@ -35,7 +35,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace orb {
+namespace orb::core {
 
 // Default error domain. Small and extend-as-needed; the named cases cover the failure
 // modes the C layer already reports (endpoint-claim/out-of-slots -> NoResource, xfer
@@ -119,7 +119,7 @@ class Result<void, E> {
     bool ok_;
 };
 
-}  // namespace orb
+}  // namespace orb::core
 
 /*
  * Propagation macros. These use a GCC statement-expression ({ ... }) — the toolchain is

@@ -7,7 +7,7 @@
 #include "diskio.h"
 #include "hardware/timer.h"
 #include "orb_log.h"
-#include "spsc_ring.hpp"
+#include "core/spsc_ring.hpp"
 // Vendored tusb_types.h trips -Wextra (enum/non-enum ternary) under C++; it was silent
 // while this TU was C. Silence it for the include only -- our own code keeps -Wextra.
 #pragma GCC diagnostic push
@@ -23,7 +23,7 @@
 //--------------------------------------------------------------------+
 #define ULOG_SIZE 32768u  // power of two
 
-static orb::SpscRing<uint8_t, ULOG_SIZE> s_ulog;
+static orb::core::SpscRing<uint8_t, ULOG_SIZE> s_ulog;
 
 // ANSI-SGR strip state machine. The dlog ring carries inline color codes meant
 // for the UART sink; LOG.TXT must stay clean. We skip ESC '[' ... <final byte>.

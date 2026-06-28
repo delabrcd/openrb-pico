@@ -47,7 +47,7 @@
 #include <cstdint>
 #include <type_traits>
 
-namespace orb {
+namespace orb::core {
 
 template <typename T, size_t N>
 class SpscRing {
@@ -130,6 +130,6 @@ class SpscRing {
     volatile uint32_t tail_ = 0;  // next read index (consumer)
 };
 
-}  // namespace orb
+}  // namespace orb::core
 
 #endif  // OPENRB_SPSC_RING_HPP
