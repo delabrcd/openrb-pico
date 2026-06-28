@@ -6,6 +6,8 @@ Quick reference for working on the RP2040 firmware. Everything runs in Docker vi
 [`scripts/`](scripts/) wrap the compose commands — prefer them over driving compose or
 `openocd` by hand.
 
+- On-target debugging — the persistent `dbgd` daemon, **dual-core backtraces**, and
+  FreeRTOS thread awareness: [`docs/DEBUGGING.md`](docs/DEBUGGING.md).
 - Deep porting writeup (core1 race, the 240 MHz fix, etc.): [`PORTING.md`](PORTING.md).
 - Why the submodule patches / clock exist, and the **hardware testing caveats**:
   [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md) — read this before trusting
@@ -30,8 +32,9 @@ The compose file defines three services off that one image (see
 | service | lifetime | privilege | role |
 |---------|----------|-----------|------|
 | `build` | one-shot | unprivileged | cross-compile the firmware |
-| `dbg` | one-shot | privileged + `/dev` | openocd flash / reset over SWD |
+| `dbg` | one-shot | privileged + `/dev` | one-shot openocd (manual use; flash/reset now route through `dbgd`) |
 | `monitor` | long-running (`restart: unless-stopped`) | privileged + `/dev` | owns the debug UART → `.mon/uart.log` |
+| `dbgd` | long-running (`restart: unless-stopped`) | privileged + `/dev` | owns the SWD probe: one persistent openocd (gdbservers :3333/:3334, command ports :4444/:6666). See [`docs/DEBUGGING.md`](docs/DEBUGGING.md) |
 
 ## Common workflow
 
@@ -70,12 +73,40 @@ flash/reset via the `ORB_BOARD` env var or a positional arg: `scripts/flash.sh F
 
 | script | what it does |
 |--------|--------------|
-| `build.sh [clean]` | submodules → cmake configure (cached) → build. `clean` wipes `build/` first. |
-| `flash.sh [BOARD]` | halts both cores, then `program …verify reset` of `build/openrb-pico_<BOARD>.elf`. |
-| `reset.sh` | marks the UART log, then SWD `reset run`. |
+| `build.sh [debug] [clean]` | submodules → cmake configure (cached) → build. `clean` wipes the tree first; `debug` builds the `-Og` deep-backtrace variant in a separate `build-debug/` (see below). |
+| `flash.sh [BOARD]` | halts both cores, then `program …verify reset` of `build/openrb-pico_<BOARD>.elf` — **via the `dbgd` daemon** (no second openocd). `ORB_BUILD_DIR=build-debug` flashes the debug ELF. |
+| `reset.sh` | marks the UART log, then SWD `reset run` **via the `dbgd` daemon**. |
+| `gdb.sh [--no-resume] [bt\|regs\|tasks\|core0 "<cmd>"\|core1 "<cmd>"]` | **dual-core backtraces** from both gdbservers (and `tasks` = all FreeRTOS tasks), then resume. `ORB_BUILD_DIR=build-debug` uses the debug ELF. See [`docs/DEBUGGING.md`](docs/DEBUGGING.md). |
+| `ocd.sh '<tcl>'` | send any openocd/TCL command to the running `dbgd` daemon (e.g. `scripts/ocd.sh 'targets'`). |
 | `uart.sh [N]` | read the monitor log: no arg follows it live; `N` prints the last N lines. |
 | `monitor.sh {start\|stop\|restart\|rebuild\|status\|logs}` | `monitor` service lifecycle. Rarely needed — it auto-starts. `rebuild` picks up Dockerfile changes. |
-| `common.sh` | shared compose helpers, sourced by the others (env overrides: `ORB_BOARD`, `ORB_TTY`, `ORB_BAUD`). |
+| `dbgd.sh {start\|stop\|restart\|rebuild\|status\|logs}` | `dbgd` (SWD debug daemon) lifecycle. Rarely needed — it auto-starts. |
+| `common.sh` | shared compose helpers, sourced by the others (env overrides: `ORB_BOARD`, `ORB_TTY`, `ORB_BAUD`, `ORB_ADAPTER_SPEED`). |
+
+## Deep-backtrace debug build (`-Og`)
+
+The default build ships at the Pico-SDK default optimization (≈`-O2`), which is what we
+test for timing — but it makes gdb backtraces **shallow** (the optimizer omits frame
+pointers and inlines, so the unwinder loses frames). When you need to see *deep*
+multi-frame backtraces (e.g. chasing a hang), build the opt-in `-Og` variant:
+
+```sh
+scripts/build.sh debug                       # configures + builds in build-debug/ (-DORB_DEBUG_BUILD=ON)
+ORB_BUILD_DIR=build-debug scripts/flash.sh   # flash the debug ELF
+ORB_BUILD_DIR=build-debug scripts/gdb.sh tasks   # debug-symbol-rich backtraces
+```
+
+- `build/` (optimized) and `build-debug/` (`-Og`) **coexist** — no reconfiguring back
+  and forth. The default `build/`, `flash.sh`, and `gdb.sh` are unchanged; the debug
+  tree is purely opt-in via the `debug` arg / `ORB_BUILD_DIR` env.
+- `ORB_DEBUG_BUILD=ON` adds `-Og -g3 -fno-omit-frame-pointer -funwind-tables
+  -fasynchronous-unwind-tables` to the **project's own sources only** (`src/*`, via the
+  `add_board_target` targets in [`cmake/AddBoardTarget.cmake`](cmake/AddBoardTarget.cmake)).
+  The SDK / TinyUSB / FreeRTOS libraries stay at their default optimization — this keeps
+  the build fast and the blast radius small; we rarely need to unwind through them.
+- **`-Og` slightly changes timing.** It is a debug aid you flash *deliberately* when
+  debugging, not what we ship/test. The chip stays at **120 MHz** (the clock is not
+  touched). For any timing-sensitive enumeration test, go back to the optimized `build/`.
 
 Build artifacts land in `build/openrb-pico_<BOARD>.{elf,bin,uf2}` (`build*` is gitignored).
 The UART log lives at `.mon/uart.log` (also gitignored). After editing
@@ -129,5 +160,10 @@ Caveats:
   continuous-read/QPI mode; SWD can't reset the external chip. Power-cycle, or hold
   **BOOTSEL** while plugging in.
 - **Probe not visible in the container.** The privileged services pass through `/dev`;
-  if you hotplug the probe, `scripts/monitor.sh restart` re-opens the tty. A one-shot
-  `flash`/`reset` always sees the current `/dev` since it's a fresh container.
+  if you hotplug the **UART**, `scripts/monitor.sh restart` re-opens the tty, and if you
+  hotplug the **SWD probe**, `scripts/dbgd.sh restart` re-homes openocd (its inner
+  reconnect loop also recovers across probe re-enumeration on its own).
+- **One openocd owns the probe.** `flash`/`reset`/`gdb` all route through the single
+  persistent `dbgd` daemon — don't run a bare `openocd` against the probe while it's
+  up. To use an external debugger, `scripts/dbgd.sh stop` first. See
+  [`docs/DEBUGGING.md`](docs/DEBUGGING.md).
