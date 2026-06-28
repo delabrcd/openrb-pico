@@ -9,6 +9,12 @@ set(PICO_SDK_PATH ${CMAKE_SOURCE_DIR}/external/pico-sdk)
 # pico_sdk_init().
 set(PICO_TINYUSB_PATH ${CMAKE_SOURCE_DIR}/external/tinyusb)
 
+# FreeRTOS SMP kernel (V11.2.0, portable/ThirdParty/GCC/RP2040). The import is pulled
+# in after pico_sdk_init() below so it only applies to targets that explicitly link it.
+# FREERTOS_CONFIG_FILE_DIRECTORY tells the kernel where inc/FreeRTOSConfig.h lives.
+set(FREERTOS_KERNEL_PATH ${CMAKE_SOURCE_DIR}/external/FreeRTOS-Kernel)
+set(FREERTOS_CONFIG_FILE_DIRECTORY ${CMAKE_SOURCE_DIR}/inc)
+
 include(pico_sdk_import.cmake)
 include(cmake/AddBoardTarget.cmake)
 project(openrb-pico C CXX ASM)
@@ -16,6 +22,15 @@ project(openrb-pico C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Opt-in deep-backtrace debug build. When ON, the project's OWN sources (the targets
+# created by add_board_target) are compiled with -Og + full unwind info so gdb can
+# produce deep multi-frame backtraces. OFF (default) keeps the normal optimized build
+# we ship/test for timing. The SDK / TinyUSB / FreeRTOS libraries stay at their default
+# optimization to limit blast radius (we rarely need to unwind through them, and it
+# keeps the debug build fast). See BUILDING.md. Use scripts/build.sh debug to configure
+# a separate build-debug/ tree with this ON so the optimized build/ keeps coexisting.
+option(ORB_DEBUG_BUILD "Build the project's own sources with -Og + full unwind info for debugging" OFF)
 
 
 set(PICO_PIO_USB_PATH external/Pico-PIO-USB)
@@ -30,6 +45,17 @@ add_compile_definitions(PICO_DEFAULT_PIO_USB_DP_PIN=16)
 set(LOG 0)
 pico_sdk_init()
 
+# Bring in the FreeRTOS SMP kernel (defines FreeRTOS-Kernel + FreeRTOS-Kernel-Heap4
+# INTERFACE targets). Must come after pico_sdk_init() so PICO_PLATFORM is set.
+include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+
+# Propagate the FreeRTOS kernel + our FreeRTOSConfig.h onto the TinyUSB include path so
+# that, once CFG_TUSB_OS=OPT_OS_FREERTOS, the TinyUSB OSAL sources can #include <FreeRTOS.h>.
+# tinyusb_common is INTERFACE and is linked by tinyusb_host/tinyusb_device, so this reaches
+# every TinyUSB translation unit. (Harmless while still on OPT_OS_PICO — the kernel stays
+# dormant until vTaskStartScheduler() is called.)
+target_link_libraries(tinyusb_common INTERFACE FreeRTOS-Kernel-Heap4)
+
 add_subdirectory(external)
 include_directories(inc)
 
@@ -42,6 +68,10 @@ set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_D
 
 set(SOURCES
     src/main.c
+    src/adapter_ctx.c
+    src/app_queues.c
+    src/app_tasks.cpp
+    src/freertos_hooks.c
     src/dlog.c
     src/usb_log.c
     ${FATFS_DIR}/ff.c

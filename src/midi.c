@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "FreeRTOS.h"
 #include "bsp/board_api.h"
 #include "hardware/gpio.h"
 #include "hardware/timer.h"
@@ -10,10 +11,12 @@
 #include "instrument_manager.h"
 #include "orb_bsp.h"
 #include "orb_debug.h"
+#include "timers.h"
 
 static int count = 0;
 static uint8_t note_on_message[3] = {NoteOn, 0, 0};
-static int alarm_number = 0;
+static TimerHandle_t s_disconnect_timer;
+static StaticTimer_t s_disconnect_timer_buf;
 
 static volatile bool drums_connected = false;
 static bool drums_sending_active_sense = false;
@@ -35,7 +38,8 @@ static inline midi_type_e get_type_from_status(uint8_t status) {
     return status;
 }
 
-void __not_in_flash_func(on_disconnect_timeout_cb)() {
+void __not_in_flash_func(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
+    (void)xTimer;
     if (drums_connected) {
         disconnect_instrument(DRUMS, &out_packet);
         drums_connected = false;
@@ -43,15 +47,17 @@ void __not_in_flash_func(on_disconnect_timeout_cb)() {
 }
 
 void setup_disconnect_timer() {
-    alarm_number = hardware_alarm_claim_unused(true);
-    hardware_alarm_set_callback(alarm_number, on_disconnect_timeout_cb);
+    s_disconnect_timer = xTimerCreateStatic("midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES),
+                                            pdFALSE /*one-shot*/, NULL, on_disconnect_timeout_cb,
+                                            &s_disconnect_timer_buf);
 }
 
 void __not_in_flash_func(reset_disconnect_timer)() {
-    hardware_alarm_cancel(alarm_number);  // Cancel any existing timer
-    hardware_alarm_set_target(
-            alarm_number,
-            make_timeout_time_ms(drums_sending_active_sense ? ONE_SECOND : FIFTEEN_MINUTES));
+    // Set the new period and (re)start the one-shot timer. xTimerChangePeriod also
+    // starts/restarts the timer, giving the same "cancel + re-arm" semantics as the
+    // old hardware_alarm code. Block time 0 — don't block in this hot path.
+    xTimerChangePeriod(s_disconnect_timer,
+                       pdMS_TO_TICKS(drums_sending_active_sense ? ONE_SECOND : FIFTEEN_MINUTES), 0);
 }
 
 void serial_midi_init() {

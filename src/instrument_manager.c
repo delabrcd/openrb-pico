@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "adapter.h"
+#include "adapter_ctx.h"
 #include "orb_debug.h"
 #include "packet_queue.h"
 #include "util.h"
@@ -14,8 +15,6 @@
 #if OPENRB_DEBUG_ENABLED
 const char *instrument_names[N_INSTRUMENTS] = {"GUITAR_ONE", "GUITAR_TWO", "DRUMS"};
 #endif
-
-extern volatile adapter_state_t adapter_state;
 
 static volatile uint8_t connected_instruments[N_INSTRUMENTS] = {0, 0, 0};
 
@@ -72,7 +71,7 @@ void connect_instrument(instruments_e instrument, xbox_packet_t *scratch_space) 
     OPENRB_DEBUG("%s connected!\r\n", instrument_names[instrument]);
     connected_instruments[instrument] = 1;
 
-    if (adapter_state != STATE_RUNNING) return;
+    if (adapter_get_state() != STATE_RUNNING) return;
 
     grab_packet(scratch_space, instrument, true);
     xbox_fifo_write(scratch_space);
@@ -83,7 +82,7 @@ void disconnect_instrument(instruments_e instrument, xbox_packet_t *scratch_spac
     OPENRB_DEBUG("%s disconnected!\r\n", instrument_names[instrument]);
     connected_instruments[instrument] = 0;
 
-    if (adapter_state != STATE_RUNNING) return;
+    if (adapter_get_state() != STATE_RUNNING) return;
 
     grab_packet(scratch_space, instrument, false);
     xbox_fifo_write(scratch_space);

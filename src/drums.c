@@ -4,6 +4,8 @@
 #include <stdint.h>
 
 #include "adapter.h"
+#include "adapter_ctx.h"
+#include "app_queues.h"
 #include "bsp/board_api.h"
 #include "instrument_manager.h"
 #include "midi.h"
@@ -117,8 +119,6 @@ static void note_on(uint8_t note, uint8_t velocity) {
     return;
 }
 
-extern volatile adapter_state_t adapter_state;
-
 static inline midi_type_e get_type_from_status(uint8_t status) {
     if ((status < 0x80) || (status == Undefined_F4) || (status == Undefined_F5) ||
         (status == Undefined_FD))
@@ -131,18 +131,30 @@ static inline midi_type_e get_type_from_status(uint8_t status) {
     return status;
 }
 
+// Runs on core1 (the core that owns the USB host stack, same core as tuh_midi_mount_cb
+// which sets drum_state.midi_dev_addr). Drains the host MIDI FIFO so it can't overflow
+// and hands each complete message to core0's drum_task via the note queue. No state
+// guard here on purpose -- keep draining regardless of adapter state.
+void __not_in_flash_func(drums_read_midi_host)(void) {
+    uint8_t cable_num;
+    uint8_t msg[48];
+    while (tuh_midi_stream_read(drum_state.midi_dev_addr, &cable_num, msg, sizeof(msg)) != 0) {
+        midi_note_t n = { { msg[0], msg[1], msg[2] } };
+        midi_note_send(&n);
+    }
+}
+
 void __not_in_flash_func(drum_task)() {
-    if (adapter_state != STATE_RUNNING) return;
+    if (adapter_get_state() != STATE_RUNNING) return;
 
     static uint8_t pending_msg[48];
-    static uint8_t cable_num;
     static midi_type_e type;
     static uint32_t current_time;
 
-    while (tuh_midi_stream_read(drum_state.midi_dev_addr, &cable_num, pending_msg,
-                                sizeof(pending_msg)) != 0) {
-        type = get_type_from_status(pending_msg[0]);
-        if (type == NoteOn) note_on(pending_msg[1], pending_msg[2]);
+    midi_note_t n;
+    while (midi_note_recv(&n)) {
+        type = get_type_from_status(n.data[0]);
+        if (type == NoteOn) note_on(n.data[1], n.data[2]);
     }
 
     while (serial_midi_read(pending_msg)) {
