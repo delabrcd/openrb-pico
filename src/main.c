@@ -418,7 +418,10 @@ void usb_host_task(void *param) {
     configure_host();
     uint32_t last_reinit_us = 0;  // lock-free timer (timerawl) -- board_millis() spinlock hangs core1
     while (true) {
-        tuh_task();
+        // tuh_task_ext(10): block on the host event queue but wake at least every 10ms
+        // so the reinit/host-tx/midi/usb_log/recovery work below still runs when the bus
+        // is idle. (Under OPT_OS_FREERTOS a plain tuh_task() blocks forever.)
+        tuh_task_ext(10, false);
         // A running controller that re-announced needs its init re-sent (Issue: a
         // post-auth replug leaves it announcing forever, never streaming input).
         // Debounce so we re-init at most ~2x/s instead of on every announce.
@@ -619,7 +622,11 @@ static void init() {
 void core0_task(void *param) {
     (void)param;
     while (true) {
-        tud_task();
+        // tud_task_ext(1): block on the device event queue but wake at least every 1ms
+        // so the rest of the device-side work (send drain, drums, announce, recovery,
+        // log) still runs when the console is idle. (Under OPT_OS_FREERTOS a plain
+        // tud_task() blocks forever.) Phase 3 splits these into per-concern tasks.
+        tud_task_ext(1, false);
         announce_task();
         xboxd_send_task();
         drum_task();

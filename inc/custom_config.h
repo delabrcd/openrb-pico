@@ -52,7 +52,12 @@ extern "C" {
 #define BOARD_TUH_RHPORT CFG_TUH_RPI_PIO_USB
 
 #define CFG_TUSB_MCU OPT_MCU_RP2040
-#define CFG_TUSB_OS OPT_OS_PICO
+// The vendored tinyusb rp2040 BSP (hw/bsp/rp2040/family.cmake) hard-defines
+// -DCFG_TUSB_OS=OPT_OS_PICO on the command line. This config file is included by
+// tusb_option.h before the OSAL is selected, so undef + redefine here overrides it
+// cleanly (no redefinition warning) and consistently across every TinyUSB unit.
+#undef CFG_TUSB_OS
+#define CFG_TUSB_OS OPT_OS_FREERTOS
 
 // temporary: route host-stack logs through the deferred (core1-safe) logger
 int dlog_printf(const char *fmt, ...);

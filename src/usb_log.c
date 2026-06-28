@@ -157,8 +157,12 @@ static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb
 }
 
 static void wait_for_disk_io(BYTE pdrv) {
+    // tuh_task_ext(0, false): non-blocking pump. Under OPT_OS_FREERTOS a plain
+    // tuh_task() blocks on the host event queue forever -- here we must keep spinning
+    // the host stack until the disk completion callback fires, so force the
+    // non-blocking variant. (No-op difference under OPT_OS_PICO.)
     while (s_disk_busy[pdrv]) {
-        tuh_task();
+        tuh_task_ext(0, false);
     }
 }
 

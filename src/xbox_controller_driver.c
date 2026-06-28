@@ -141,7 +141,9 @@ static bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
 }
 
 static void wait_for_tx_complete(uint8_t dev_addr, uint8_t ep_out) {
-    while (usbh_edpt_busy(dev_addr, ep_out)) tuh_task();
+    // Non-blocking pump (see usb_log.c wait_for_disk_io): under OPT_OS_FREERTOS a plain
+    // tuh_task() would block on the host event queue instead of spinning the TX out.
+    while (usbh_edpt_busy(dev_addr, ep_out)) tuh_task_ext(0, false);
 }
 
 bool xboxh_send_report(uint8_t daddr, uint8_t idx, const void *report, uint16_t len) {
