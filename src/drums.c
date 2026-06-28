@@ -7,6 +7,7 @@
 #include "adapter_ctx.h"
 #include "app_queues.h"
 #include "bsp/board_api.h"
+#include "hihat_config.h"
 #include "instrument_manager.h"
 #include "midi.h"
 #include "orb_log.h"
@@ -102,10 +103,31 @@ static void __not_in_flash_func(update_drum_state_with_midi_input)(
     return;
 }
 
+#if ORB_HIHAT_MODE >= 2
+// CC-keyed hi-hat openness, tracked on core0 from the pedal-position CC (see
+// docs/features/hihat-mode.md). false = closed (pedal down); init closed so a
+// resting/unknown pedal maps to the default yellow-cymbal lane.
+static bool g_hh_open = false;
+
+// Membership test over the configured hi-hat strike-note set.
+static bool is_hihat_note(uint8_t note) {
+    static const uint8_t hihat_notes[] = ORB_HIHAT_NOTES;
+    for (unsigned i = 0; i < sizeof(hihat_notes); i++) {
+        if (hihat_notes[i] == note) return true;
+    }
+    return false;
+}
+#endif
+
 static void note_on(uint8_t note, uint8_t velocity) {
     if (velocity <= VELOCITY_THRESH) return;
 
     output_e out = get_output_for_note(note);
+#if ORB_HIHAT_MODE >= 2
+    // CC-keyed override: for a hi-hat strike, ignore the note's table mapping and
+    // emit open/closed from the tracked pedal state (closed->yellow, open->blue).
+    if (is_hihat_note(note)) out = g_hh_open ? OUT_CYM_BLUE : OUT_CYM_YELLOW;
+#endif
     if (out == NO_OUT) return;
 
     if (drum_state.midi_output_states[out].triggered) return;
@@ -119,6 +141,26 @@ static void note_on(uint8_t note, uint8_t velocity) {
     drum_state.midi_output_states[out].triggered_at = board_millis();
     return;
 }
+
+#if ORB_HIHAT_MODE >= 1
+// Consumes a ControlChange. At mode 1 this only logs the CC for discovery (so the
+// owner can watch the UART and learn which CC# their kit sends for the hi-hat pedal
+// and its polarity). At mode >= 2 it also drives the pedal-openness state machine.
+static void control_change(uint8_t controller, uint8_t value) {
+#if ORB_HIHAT_MODE >= 2
+    if (controller == ORB_HIHAT_CC) {
+        // "raw closeness" rises with the configured-closed direction.
+        uint8_t v = ORB_HIHAT_INVERT ? (uint8_t)(127 - value) : value;
+        if (g_hh_open) {
+            if (v >= ORB_HIHAT_THRESHOLD + ORB_HIHAT_HYST) g_hh_open = false;  // -> closed
+        } else {
+            if (v <= ORB_HIHAT_THRESHOLD - ORB_HIHAT_HYST) g_hh_open = true;  // -> open
+        }
+    }
+#endif
+    LOG_INFO(CAT_DRUM, "CC %u = %u", controller, value);
+}
+#endif
 
 static inline midi_type_e get_type_from_status(uint8_t status) {
     if ((status < 0x80) || (status == Undefined_F4) || (status == Undefined_F5) ||
@@ -156,11 +198,17 @@ void __not_in_flash_func(drum_task)() {
     while (midi_note_recv(&n)) {
         type = get_type_from_status(n.data[0]);
         if (type == NoteOn) note_on(n.data[1], n.data[2]);
+#if ORB_HIHAT_MODE >= 1
+        else if (type == ControlChange) control_change(n.data[1], n.data[2]);
+#endif
     }
 
     while (serial_midi_read(pending_msg)) {
         type = get_type_from_status(pending_msg[0]);
         if (type == NoteOn) note_on(pending_msg[1], pending_msg[2]);
+#if ORB_HIHAT_MODE >= 1
+        else if (type == ControlChange) control_change(pending_msg[1], pending_msg[2]);
+#endif
     }
 
     current_time = board_millis();

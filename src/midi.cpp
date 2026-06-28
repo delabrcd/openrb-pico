@@ -7,6 +7,7 @@
 #include "hardware/gpio.h"
 #include "hardware/timer.h"
 #include "hardware/uart.h"
+#include "hihat_config.h"
 #include "orb_bsp.h"
 #include "orb_debug.h"
 #include "software_timer.hpp"
@@ -88,6 +89,13 @@ int __not_in_flash_func(serial_midi_read)(uint8_t* buf) {
         uint8_t data = uart_getc(MIDI_UART);
         midi_type_e type = get_type_from_status(data);
         switch (type) {
+#if ORB_HIHAT_MODE >= 1
+            // CC-keyed hi-hat mode also needs ControlChange off the serial path.
+            // Treat it exactly like NoteOn: valid status byte, collect 2 data
+            // bytes, return the raw 3-byte message; a CC also counts as "drums
+            // connected" (status_byte path below), so the disconnect timer behaves.
+            case ControlChange:
+#endif
             case NoteOn:
                 status_byte = true;
                 note_on_message[0] = data;
