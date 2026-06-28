@@ -98,6 +98,17 @@ These reconcile "modern C++" with "no heap on a dual-M0+ with a hard-real-time c
   publish) but typed: `std::atomic<uint32_t>` with explicit memory orders *iff* it emits
   the same plain load/store on M0+ (verify), else documented `volatile`. No mutex on a
   core1 path, ever.
+- **Hardware-object lifetime (RAII vs. global-ctor).** HAL hardware objects whose
+  constructor touches the chip (e.g. `hal::GpioOut` → `gpio_init`, `hal::Uart` →
+  `uart_init`) must NOT be file-scope `static` instances: a global constructor would run
+  before `main()` sets the system clock / before the SDK is ready, and re-introduces
+  static-init-order risk. Instead they are **constructed inside an init step / owned by an
+  orchestrator object** (the lifetime owner is `app/`). Where a module currently keeps
+  file-scope state and isn't an object yet, hold the hardware object in a
+  `std::optional<hal::Foo>` file static (trivially, no global ctor) and `.emplace(...)` it
+  in the module's `init()`. Trivially-constructible HAL types (e.g. `hal::Clock` — its
+  ctor touches nothing, `now_us()` just reads a register) may be plain values/members.
+  The osal wrappers already follow this (trivial ctor + explicit `create()`).
 
 ## Naming / layout conventions
 
