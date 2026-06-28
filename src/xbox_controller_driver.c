@@ -403,10 +403,26 @@ void xboxh_reset_controllers() {
     }
 }
 
-bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
-    (void)result;
+// Consecutive failed interrupt-IN transfers. A wedged CH334R hub makes the
+// controller's IN poll fail continuously (~80/s, result=FAILED) while a healthy-but-
+// idle controller produces NO completions between its sparse packets (NAKs don't
+// complete) -- so a run of failures is a fast, false-positive-free "wedged" signal
+// (see host_recovery_task). Reset to 0 on any successful IN. Core1-only (xfer_cb runs
+// in tuh_task) -> plain volatile is safe.
+static volatile uint32_t s_in_err_streak = 0;
+uint32_t xboxh_in_error_streak(void) { return s_in_err_streak; }
+void xboxh_clear_error_streak(void) { s_in_err_streak = 0; }
 
+bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
     uint8_t const dir = tu_edpt_dir(ep_addr);
+
+    if (dir == TUSB_DIR_IN) {
+        if (result == XFER_RESULT_SUCCESS)
+            s_in_err_streak = 0;
+        else
+            s_in_err_streak++;
+    }
+
     uint8_t const idx = get_idx_by_epaddr(daddr, ep_addr);
 
     xbox_interface_t *p_controller = get_xbox_itf(daddr, idx);

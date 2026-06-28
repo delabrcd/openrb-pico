@@ -338,13 +338,18 @@ static void configure_host() {
 // recovery_reboot_task (core0) defers to it via g_runtime_recovery_engaged and only
 // watchdog-reboots if this gives up. Custom board only -- FEATHER has no hub.
 #if ORB_BOARD_ID == ORB_BOARD_ID_CUSTOM_REV_0_1
-// Silence threshold must exceed the controller's IDLE keep-alive interval, or a
-// merely-idle (healthy) controller trips a false recovery. Measured on hardware: a
-// pre-auth/idle Xbox pad sends CMD_STATUS every ~20 s, and every received packet
-// refreshes g_host_last_rx_us -- so 30 s clears the 20 s heartbeat with margin while
-// still catching a truly wedged hub (no heartbeat at all). In active play the pad
-// streams input sub-second, so this never fires spuriously there.
-#define HOST_RECOV_SILENCE_US 30000000u  // no packet (incl. idle heartbeat) this long -> wedged
+// "Wedged" is detected two ways (measured on hardware):
+//  1. FAST -- a wedged CH334R fails the controller's interrupt-IN poll continuously
+//     (~80 failures/s), while a healthy idle pad produces NO completions between its
+//     sparse packets (NAKs don't complete). So a run of consecutive IN failures is a
+//     ~1 s, false-positive-free wedge signal (xboxh_in_error_streak()).
+//  2. BACKSTOP -- in case a wedge ever stops the IN poll entirely instead of failing
+//     it, also trigger on prolonged silence. The threshold must exceed the pad's idle
+//     CMD_STATUS keep-alive (~20 s, which refreshes g_host_last_rx_us), so 30 s clears
+//     the heartbeat with margin. In active play input streams sub-second, so neither
+//     path fires spuriously there.
+#define HOST_RECOV_ERR_STREAK 100u       // ~1.25 s of continuous IN failures -> wedged (fast)
+#define HOST_RECOV_SILENCE_US 30000000u  // no packet at all this long -> wedged (backstop)
 #define HOST_RECOV_GRACE_US 3000000u     // wait this long between resets for re-enumeration
 #define HOST_RECOV_MAX 3u                // bounded so a genuine unplug can't thrash the hub forever
 static void host_recovery_task(void) {
@@ -365,11 +370,12 @@ static void host_recovery_task(void) {
         attempts = 0;
     }
 
-    bool silent = (uint32_t)(now - g_host_last_rx_us) > HOST_RECOV_SILENCE_US;
+    bool wedged = xboxh_in_error_streak() >= HOST_RECOV_ERR_STREAK ||
+                  (uint32_t)(now - g_host_last_rx_us) > HOST_RECOV_SILENCE_US;
 
-    // Detect a loss: a controller mounted this boot but has since gone silent. A clean
+    // Detect a loss: a controller mounted this boot but has since gone wedged. A clean
     // unplug also looks like this, so attempts are bounded (gave_up) until input returns.
-    if (!recovering && !gave_up && adapter_controller_seen() && silent) {
+    if (!recovering && !gave_up && adapter_controller_seen() && wedged) {
         recovering = true;
         attempts = 0;
         last_attempt_us = now - HOST_RECOV_GRACE_US;  // act on the first pass
@@ -384,8 +390,9 @@ static void host_recovery_task(void) {
         } else if ((uint32_t)(now - last_attempt_us) >= HOST_RECOV_GRACE_US) {
             attempts++;
             last_attempt_us = now;
-            g_host_last_rx_us = now;  // suppress the silence check while re-enumeration runs
-            OPENRB_DEBUG("HOST RECOVERY: controller silent -> hub reset %u/%u\r\n",
+            g_host_last_rx_us = now;       // suppress the silence backstop during re-enumeration
+            xboxh_clear_error_streak();    // fresh count; GRACE lets re-enum land before it re-trips
+            OPENRB_DEBUG("HOST RECOVERY: controller wedged -> hub reset %u/%u\r\n",
                          (unsigned)attempts, (unsigned)HOST_RECOV_MAX);
             reset_usb_hub();  // RESET# pulse (busy_wait_ms, core1-safe); TinyUSB re-enumerates
         }
