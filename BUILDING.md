@@ -10,6 +10,9 @@ Quick reference for working on the RP2040 firmware. Everything runs in Docker vi
 - Why the submodule patches / clock exist, and the **hardware testing caveats**:
   [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md) — read this before trusting
   any enumeration A/B result.
+- How the controller is brought back after a warm reset (re-reset enumeration +
+  heartbeat-keyed auto-reboot, and why it's a hardware limitation):
+  [`docs/warm-reset-recovery.md`](docs/warm-reset-recovery.md).
 
 ## Prerequisites
 
