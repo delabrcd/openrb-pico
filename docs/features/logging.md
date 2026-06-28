@@ -1,6 +1,9 @@
 # Feature: logging overhaul
 
-Status: PROPOSED (spec only — not yet implemented)
+Status: IMPLEMENTED — `inc/orb_log.{h}` + `src/orb_log.c` front end, all call sites
+migrated, plain-text output with host-side colorization in `scripts/uart.sh`. The rings
+moved onto `SpscRing<T,N>`. Remaining (optional): Phase 5 per-sink / per-category
+*runtime* level control.
 Related: [cpp-overhaul](cpp-overhaul.md), [runtime-configurator](runtime-configurator.md)
 
 ## Summary

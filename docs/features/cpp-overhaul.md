@@ -1,5 +1,9 @@
 # Feature: C++ object-oriented overhaul
-Status: PROPOSED (spec only — not yet implemented)
+Status: IN PROGRESS — Phases 0,1,2,3a,3b,6 + foundation hardening + `namespace orb`
+unification done and reviewed (see git log). Remaining: D4 hardware RAII
+(`GpioOut`/`HubReset`/`MscLogSink`), D5/Phase 5 `adapter_ctx`→`AdapterCtx`, Phase 7
+device driver, Phase 8 host driver, Phase 9 task/`UsbHost` objects — all core1/driver,
+to be done step-by-step WITH hardware validation.
 Related: [logging](logging.md), [runtime-configurator](runtime-configurator.md), [hihat-mode](hihat-mode.md)
 
 ## Summary

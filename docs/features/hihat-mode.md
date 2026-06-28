@@ -1,5 +1,9 @@
 # Feature: alternate hi-hat mode (CC-keyed)
-Status: PROPOSED (spec only — not yet implemented)
+Status: IMPLEMENTED (gated) — behind compile-time `ORB_HIHAT_MODE` in
+`inc/hihat_config.h` (0=off/default, byte-identical build; 1=CC parsing + discovery log;
+2=CC-keyed override). CC parsing added to the serial path; state machine + override in
+`drums.c`. Phase 2 (runtime-config-backed, persisted tunables) pends the runtime
+configurator; needs bench tuning of the kit's actual CC#/polarity.
 Related: [runtime-configurator](runtime-configurator.md) (companion spec — also PROPOSED; provides the persisted-settings mechanism this feature stores its tunables in)
 
 ## Summary
