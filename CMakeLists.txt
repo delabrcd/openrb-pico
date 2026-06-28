@@ -59,8 +59,12 @@ target_link_libraries(tinyusb_common INTERFACE FreeRTOS-Kernel-Heap4)
 add_subdirectory(external)
 include_directories(inc)
 
-# FatFs (vendored in the SDK's TinyUSB) for writing the log to a USB flash drive.
-set(FATFS_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source)
+# FatFs (vendored in our TinyUSB fork) for writing the log to a USB flash drive.
+# Pulled from external/tinyusb (PICO_TINYUSB_PATH), NOT pico-sdk's bundled tinyusb, so
+# the build depends only on the tinyusb tree we pin (the SDK's lib/tinyusb is otherwise
+# unused -- the USB stack already comes from external/tinyusb). The FatFs sources are
+# byte-identical between the two (revision 80286).
+set(FATFS_DIR ${PICO_TINYUSB_PATH}/lib/fatfs/source)
 include_directories(${FATFS_DIR})
 # FatFs has its own (lots of) warnings; don't let them fail our build.
 set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_DIR}/ffsystem.c
