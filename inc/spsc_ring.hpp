@@ -85,7 +85,7 @@ class SpscRing {
             buf_[h] = src[i];
             h = nh;
         }
-        head_ = h;  // single store publishes the batch
+        if (i) head_ = h;  // single store publishes the batch (skip the redundant re-store when full)
         return i;
     }
 
@@ -110,7 +110,7 @@ class SpscRing {
     bool pop(T& out) {
         uint32_t t = tail_;
         if (t == head_) return false;  // empty
-        out = const_cast<const T&>(buf_[t]);
+        out = buf_[t];  // volatile load (buf_[t] is a volatile lvalue), like readable()
         tail_ = (t + 1u) & kMask;  // single store commits
         return true;
     }
@@ -120,6 +120,11 @@ class SpscRing {
     void consume(uint32_t n) { tail_ = (tail_ + n) & kMask; }
 
    private:
+    // buf_ is volatile not only so the elements aren't cached, but because that is what
+    // ORDERS the data store before the head_/tail_ cursor store at the COMPILER level:
+    // volatile accesses cannot be reordered w.r.t. one another, so "write the slot, then
+    // publish the cursor" is preserved. A future "optimization" to a plain T buf_[N]
+    // would silently break the publish/consume ordering this ring depends on.
     volatile T buf_[N];
     volatile uint32_t head_ = 0;  // next write index (producer)
     volatile uint32_t tail_ = 0;  // next read index (consumer)

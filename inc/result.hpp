@@ -67,7 +67,9 @@ class Result {
     constexpr Result(T&& value) : value_(std::move(value)), ok_(true) {}
     constexpr Result(E error) : err_(error), ok_(false) {}
 
-    // Explicit factories where the implicit form is ambiguous (e.g. T == E).
+    // Named factories for call-site readability. NB: these do NOT make Result<E,E>
+    // compile -- they forward to the same ambiguous ctor pair. If you ever need T==E,
+    // use a distinct error enum for E rather than reaching for these.
     static constexpr Result ok(const T& value) { return Result(value); }
     static constexpr Result fail(E error) { return Result(error); }
 
@@ -128,7 +130,9 @@ class Result<void, E> {
  *                    error from the enclosing function (whose return type must be a
  *                    Result with a compatible E). On success, discards the value.
  *   TRY_VAL(expr)  — same, but the statement-expression *yields* the unwrapped value,
- *                    so you can write `int n = TRY_VAL(f());`.
+ *                    so you can write `int n = TRY_VAL(f());`. Bind the result BY VALUE:
+ *                    the yielded `T&` refers into a temporary that dies at the macro's
+ *                    closing `})`, so `auto& x = TRY_VAL(...)` would dangle.
  *
  * The enclosing function must return a Result<…, E>; the implicit Result(E) constructor
  * makes `return _r.error();` well-formed.

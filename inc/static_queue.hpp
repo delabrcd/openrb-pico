@@ -22,12 +22,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #include "FreeRTOS.h"
 #include "queue.h"
 
 template <typename T, size_t Depth>
 class StaticQueue {
+    static_assert(std::is_trivially_copyable<T>::value,
+                  "StaticQueue<T>: T must be trivially copyable (FreeRTOS moves items by memcpy)");
+
    public:
     // Create the queue. Call once, before/while the scheduler runs. Never null for a
     // static create.

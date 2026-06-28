@@ -173,6 +173,8 @@ void tuh_msc_umount_cb(uint8_t dev_addr) {
 // FatFs diskio glue -> TinyUSB MSC host. Blocking: issue the SCSI command then
 // pump tuh_task() until the completion callback fires. Safe because usb_log_task
 // (and thus f_*) runs from the core1 main loop, not inside an active tuh_task.
+// NB: index is dev_addr-1 throughout; FatFs only drives a mounted volume (dev_addr>=1),
+// so the index is always >=0 -- a dev_addr==0 would underflow but cannot reach here.
 //--------------------------------------------------------------------+
 static volatile bool s_disk_busy[CFG_TUH_DEVICE_MAX];
 

@@ -5,6 +5,7 @@
 
 #include "hardware/gpio.h"
 #include "hardware/structs/sio.h"
+#include "hardware/sync.h"
 #include "hardware/uart.h"
 #include "spsc_ring.hpp"
 
@@ -15,13 +16,20 @@
 #define DLOG_NRING 2      // one SPSC ring per core
 #define DLOG_SIZE 16384u  // per ring; must be a power of two
 
-// One lock-free SPSC ring per core (SpscRing<char,N>, inc/spsc_ring.hpp). Each core only
-// ever produces into its own ring (advancing that ring's head); core0 is the sole
-// consumer and drains both rings (advancing each tail). Producer and consumer touch
-// different 32-bit words -- aligned 32-bit loads/stores are atomic on Cortex-M0+ -- so no
-// lock is needed even though both cores log concurrently. A full ring drops the rest of
-// the message rather than blocking, keeping the core1 USB SOF running. (The ring contract
-// and drop-on-full behaviour are unchanged from the hand-rolled rings this replaced.)
+// One ring per core (SpscRing<char,N>, inc/spsc_ring.hpp). Each core produces only into
+// its own ring (advancing that ring's head); core0 is the sole consumer and drains both
+// rings (advancing each tail). Producer and consumer touch different 32-bit words --
+// aligned 32-bit loads/stores are atomic on Cortex-M0+ -- so the cross-core producer/
+// consumer relationship needs no lock. A full ring drops the rest of the message rather
+// than blocking, keeping the core1 USB SOF running.
+//
+// Producer counts differ by core, which matters for SpscRing's single-producer rule:
+//   - ring[1] (core1) has exactly ONE producer -- core1 runs only usb_host_task -- so it
+//     is a genuine SPSC ring, no serialization needed.
+//   - ring[0] (core0) is MULTI-producer: several preemptible core0 tasks (usb_device,
+//     drum_input, housekeeping) plus the FreeRTOS hooks and init/recovery paths all log.
+//     A context switch mid-write() would interleave two producers and regress head_, so
+//     dlog_printf serializes the core0 write by masking THIS core's interrupts (below).
 static orb::SpscRing<char, DLOG_SIZE> s_ring[DLOG_NRING];
 
 static dlog_sink_t dlog_sink = nullptr;
@@ -44,7 +52,19 @@ int dlog_printf(const char *fmt, ...) {
 
     const uint32_t ring = sio_hw->cpuid & 1u;  // 0 on core0, 1 on core1
     uint32_t len = (n < (int)sizeof(tmp)) ? (uint32_t)n : (uint32_t)sizeof(tmp) - 1u;
-    s_ring[ring].write(tmp, len);  // best-effort batch write; single head store publishes
+    if (ring == 0u) {
+        // core0 is multi-producer: mask THIS core's interrupts so a higher-priority core0
+        // task can't preempt and interleave mid-write. This is core0-only and sub-
+        // microsecond; it touches only core0's PRIMASK (no cross-core spinlock) so it
+        // never stalls core1 or its PIO-USB timing.
+        uint32_t irq = save_and_disable_interrupts();
+        s_ring[0].write(tmp, len);
+        restore_interrupts(irq);
+    } else {
+        // core1 runs exactly one task -> genuine single producer, no masking (and we must
+        // never disable interrupts on the PIO-USB core).
+        s_ring[1].write(tmp, len);
+    }
     return n;
 }
 
