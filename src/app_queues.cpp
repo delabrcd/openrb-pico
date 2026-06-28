@@ -10,11 +10,11 @@
 
 // host TX queue: core0 device-RX handlers enqueue, core1 usb_host_task dequeues and
 // submits the actual USB host transfer.
-static StaticQueue<xbox_packet_t, 8> s_host_tx;
+static orb::StaticQueue<xbox_packet_t, 8> s_host_tx;
 
 // MIDI note queue: core1 drums_read_midi_host enqueues parsed notes, core0 drum_task
 // dequeues and feeds them into the drum state.
-static StaticQueue<midi_note_t, 32> s_midi_note;
+static orb::StaticQueue<midi_note_t, 32> s_midi_note;
 
 void app_queues_init(void) {
     s_host_tx.create();

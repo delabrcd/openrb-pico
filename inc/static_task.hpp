@@ -17,6 +17,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+namespace orb {
+
 template <size_t StackWords>
 class StaticTask {
    public:
@@ -37,5 +39,7 @@ class StaticTask {
     StaticTask_t tcb_;
     TaskHandle_t handle_ = nullptr;
 };
+
+}  // namespace orb
 
 #endif  // OPENRB_STATIC_TASK_HPP

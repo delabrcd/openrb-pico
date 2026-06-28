@@ -28,6 +28,8 @@
 #include "FreeRTOS.h"
 #include "timers.h"
 
+namespace orb {
+
 class SoftwareTimer {
    public:
     // Create the timer. Call once, before/while the scheduler runs. Never null for a
@@ -56,5 +58,7 @@ class SoftwareTimer {
     StaticTimer_t ctrl_;                 // timer control block
     TimerHandle_t handle_ = nullptr;
 };
+
+}  // namespace orb
 
 #endif  // OPENRB_SOFTWARE_TIMER_HPP

@@ -27,6 +27,8 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 
+namespace orb {
+
 template <typename T, size_t Depth>
 class StaticQueue {
     static_assert(std::is_trivially_copyable<T>::value,
@@ -51,5 +53,7 @@ class StaticQueue {
     StaticQueue_t ctrl_;                   // queue control block
     QueueHandle_t handle_ = nullptr;
 };
+
+}  // namespace orb
 
 #endif  // OPENRB_STATIC_QUEUE_HPP

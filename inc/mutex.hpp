@@ -32,6 +32,8 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 
+namespace orb {
+
 class Mutex {
    public:
     // Create the mutex. Call once, before/while the scheduler runs. Never null for a
@@ -77,5 +79,7 @@ class ScopedLock {
     Mutex &mutex_;
     bool held_;
 };
+
+}  // namespace orb
 
 #endif  // OPENRB_MUTEX_HPP

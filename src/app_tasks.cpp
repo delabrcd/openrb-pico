@@ -25,10 +25,10 @@ static constexpr size_t kUsbDeviceStackWords = 1536;
 static constexpr size_t kDrumInputStackWords = 1024;
 static constexpr size_t kHousekeepingStackWords = 768;
 
-static StaticTask<kUsbHostStackWords> s_usb_host_task;
-static StaticTask<kUsbDeviceStackWords> s_usb_device_task;
-static StaticTask<kDrumInputStackWords> s_drum_input_task;
-static StaticTask<kHousekeepingStackWords> s_housekeeping_task;
+static orb::StaticTask<kUsbHostStackWords> s_usb_host_task;
+static orb::StaticTask<kUsbDeviceStackWords> s_usb_device_task;
+static orb::StaticTask<kDrumInputStackWords> s_drum_input_task;
+static orb::StaticTask<kHousekeepingStackWords> s_housekeeping_task;
 
 extern "C" void app_start_tasks(void) {
     s_usb_host_task.start("usb_host", usb_host_task, nullptr, kUsbTaskPriority, kCore1Affinity);

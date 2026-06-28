@@ -22,7 +22,7 @@ static int count = 0;
 static uint8_t note_on_message[3] = {NoteOn, 0, 0};
 // SoftwareTimer owns the StaticTimer_t control block (BSS, trivial ctor) and the handle,
 // replacing the old raw TimerHandle_t + StaticTimer_t + xTimerCreateStatic plumbing.
-static SoftwareTimer s_disconnect_timer;
+static orb::SoftwareTimer s_disconnect_timer;
 
 static volatile bool drums_connected = false;
 static bool drums_sending_active_sense = false;
