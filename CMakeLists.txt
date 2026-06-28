@@ -83,17 +83,17 @@ set(SOURCES
     ${FATFS_DIR}/ff.c
     ${FATFS_DIR}/ffsystem.c
     ${FATFS_DIR}/ffunicode.c
-    src/drums.c
+    src/drums.cpp
     src/packet_queue.c
     src/host_drivers.c
     src/usb_descriptors.c
     src/xbox_controller_driver.c
     src/xbox_device_driver.c
     src/xbox_one_protocol.c
-    src/wla_identifiers.c
+    src/wla_identifiers.cpp
     src/instrument_manager.cpp
     src/midi.cpp
-    src/guitar.c
+    src/guitar.cpp
     # got this hack from PIO example to fix some missing dependencies - should be fixed in later PICO SDK versions
     # https://github.com/sekigon-gonnoc/Pico-PIO-USB/blob/0f747aaa0c16f750bdfa2ba37ec25d6c8e1bc117/examples/host_hid_to_device_cdc/CMakeLists.txt#L8
     ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/dcd_pio_usb.c

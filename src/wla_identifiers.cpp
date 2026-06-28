@@ -1,11 +1,37 @@
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+/*
+ * Wireless-legacy-adapter (WLA) identifier / protocol-response wire tables and their
+ * accessors, as modern C++ behind the unchanged extern "C" API its C consumer (main.c)
+ * calls -- same C-facade pattern as instrument_manager.cpp.
+ *
+ * The byte tables below are USB WIRE DATA: the exact response payloads the emulated WLA
+ * sends during announce/identify. They MUST stay byte-identical and live in flash, so --
+ * per docs/architecture/modern-cpp.md "correctness over purity" -- they keep the original
+ * `const std::uint8_t __in_flash() name[] = {...}` form (guaranteed flash placement,
+ * byte-for-byte the original C). The C-isms removed are the (buffer,size) lookup struct
+ * and the MAKE_ID macro: the identify table is now a constexpr std::array of
+ * std::span<const std::uint8_t> views, and the accessors copy via spans + range-for.
+ */
+#include <pico.h>
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <span>
 
 #include "orb_log.h"
-#include "pico.h"
-#include "util.h"
+
+// xbox_one_protocol.h (init_packet, xbox_packet_t) and identifiers.h have their wire
+// symbols defined in C TUs; pull them in under extern "C" so init_packet resolves to its
+// C definition. identifiers.h's own facade decls are already extern "C" via ORB_C_BEGIN;
+// the nesting is harmless. Same local-seam pattern instrument_manager.cpp / midi.cpp use.
+extern "C" {
+#include "identifiers.h"
 #include "xbox_one_protocol.h"
+}
+
+namespace {
 
 // clang-format off
 
@@ -49,40 +75,43 @@ const uint8_t __in_flash() wla_identify7[] = {0x04, 0xA0, 0x01, 0x00, 0xA5, 0x02
 
 // clang-format on
 
-typedef struct {
-    const uint8_t *buffer;
-    uint8_t size;
-} identify_list_t;
-
-#define MAKE_ID(pkt) \
-    { pkt, UTIL_NUM(pkt) }
-
-static const identify_list_t wla_indenfity_list[] = {
-        MAKE_ID(wla_identify1), MAKE_ID(wla_identify2), MAKE_ID(wla_identify3),
-        MAKE_ID(wla_identify4), MAKE_ID(wla_identify5), MAKE_ID(wla_identify6),
-        MAKE_ID(wla_identify7),
+// The identify sequence: each accessor copies one full row into the scratch packet. Views
+// over the flash tables above -- replaces the original (buffer,size) struct + MAKE_ID
+// macro. constexpr: each span is built from a static array address (an address constant),
+// so the table is constant-initialised into flash with no runtime construction.
+constexpr std::array<std::span<const std::uint8_t>, 7> kIdentifyList{
+    std::span<const std::uint8_t>{wla_identify1}, std::span<const std::uint8_t>{wla_identify2},
+    std::span<const std::uint8_t>{wla_identify3}, std::span<const std::uint8_t>{wla_identify4},
+    std::span<const std::uint8_t>{wla_identify5}, std::span<const std::uint8_t>{wla_identify6},
+    std::span<const std::uint8_t>{wla_identify7},
 };
 
-#undef MAKE_ID
+}  // namespace
 
-int identifiers_get_n() { return UTIL_NUM(wla_indenfity_list); }
+// --- extern "C" facade (declared extern "C" via the orb_c_api.h seam in identifiers.h) ---
+// main.c calls these unchanged.
+
+int identifiers_get_n() { return static_cast<int>(kIdentifyList.size()); }
 
 int identifiers_get_announce(xbox_packet_t *packet) {
-    memcpy(packet->buffer, wla_announce, UTIL_NUM(wla_announce));
+    constexpr std::span<const std::uint8_t> announce{wla_announce};
+    std::ranges::copy(announce, std::span<std::uint8_t>{packet->buffer}.begin());
 
-    for (int i = 5; i <= 9; i++) {
-        packet->buffer[i] = rand() % UINT8_MAX;
+    // Randomise the WLA address bytes [5..9] -- preserved byte-for-byte from the original.
+    for (std::uint8_t &b : std::span<std::uint8_t>{packet->buffer}.subspan(5, 5)) {
+        b = static_cast<std::uint8_t>(std::rand() % UINT8_MAX);
     }
 
-    init_packet(packet, 0, UTIL_NUM(wla_announce));
+    init_packet(packet, 0, static_cast<std::uint8_t>(announce.size()));
     return 0;
 }
 
-int identifiers_get(uint8_t sequence, xbox_packet_t *packet) {
+int identifiers_get(std::uint8_t sequence, xbox_packet_t *packet) {
     if (sequence > identifiers_get_n()) return 1;
     LOG_DBG(CAT_DEV, "IDENTIFY SEQUENCE: %d", sequence);
 
-    memcpy(packet->buffer, wla_indenfity_list[sequence].buffer, wla_indenfity_list[sequence].size);
-    init_packet(packet, 0, wla_indenfity_list[sequence].size);
+    const std::span<const std::uint8_t> src = kIdentifyList[sequence];
+    std::ranges::copy(src, std::span<std::uint8_t>{packet->buffer}.begin());
+    init_packet(packet, 0, static_cast<std::uint8_t>(src.size()));
     return 0;
 }
