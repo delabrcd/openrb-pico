@@ -17,7 +17,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "adapter.h"  // adapter_state_t
+#include "adapter.h"      // adapter_state_t
+#include "orb_c_api.h"    // ORB_C_BEGIN/END (impl is C++ now; callers are C)
+
+ORB_C_BEGIN
 
 void adapter_ctx_init(void);  // set state=STATE_NONE, no controller, flags false
 
@@ -37,5 +40,7 @@ void adapter_set_controller_seen(bool v);
 
 void adapter_request_reinit(void);  // producer: set reinit_pending
 bool adapter_take_reinit(void);     // consumer: read-and-clear, returns prior value
+
+ORB_C_END
 
 #endif  // ADAPTER_CTX_H
