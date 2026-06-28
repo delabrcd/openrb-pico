@@ -250,12 +250,7 @@ static bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
     if (p_itf->daddr == 0) return false;
     if (!p_itf->is_powered) return false;
 
-    power_report_t out = {.data = {.frame = {.command = CMD_POWER_MODE,
-                                             0,
-                                             .type = TYPE_REQUEST,
-                                             get_sequence(),
-                                             sizeof(out.data.data)},
-                                   .data = 0x05}};
+    power_report_t out = make_power_report(get_sequence(), 0x05);
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
@@ -293,12 +288,7 @@ static const uint8_t xboxone_s_init[] = {0x05, 0x20, 0x00, 0x0f, 0x06};
 static bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
     if (p_itf->daddr == 0) return false;
     if (p_itf->is_powered) return false;
-    const power_report_t power_on = {.data = {.frame = {.command = CMD_POWER_MODE,
-                                                        .device_id = 0,
-                                                        .type = TYPE_REQUEST,
-                                                        .sequence = 0,
-                                                        .length = 1},
-                                              .data = POWER_ON}};
+    const power_report_t power_on = make_power_report(0, POWER_ON);
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
@@ -308,18 +298,7 @@ static bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
         wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
     }
 
-    led_mode_command_t out = {
-            .frame =
-                    {
-                            .command = CMD_LED_MODE,
-                            .device_id = 0,
-                            .type = TYPE_REQUEST,
-                            get_sequence(),
-                            .length = 3,
-                    },
-            .brightness = 0x14,
-            .mode = LED_ON,
-    };
+    led_mode_command_t out = make_led_mode_command(get_sequence(), LED_ON, 0x14);
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
@@ -362,12 +341,7 @@ bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
 bool xboxh_reset_controller(xbox_interface_t *p_itf) {
     xboxh_power_off_controller(p_itf);
 
-    power_report_t out = {.data = {.frame = {.command = CMD_POWER_MODE,
-                                             0,
-                                             .type = TYPE_REQUEST,
-                                             get_sequence(),
-                                             sizeof(out.data.data)},
-                                   .data = 0x07}};
+    power_report_t out = make_power_report(get_sequence(), 0x07);
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
