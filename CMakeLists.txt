@@ -73,7 +73,7 @@ set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_D
 
 set(SOURCES
     src/main.c
-    src/adapter_ctx.c
+    src/adapter_ctx.cpp
     src/app_queues.cpp
     src/app_tasks.cpp
     src/freertos_hooks.c
@@ -91,7 +91,7 @@ set(SOURCES
     src/xbox_device_driver.c
     src/xbox_one_protocol.c
     src/wla_identifiers.c
-    src/instrument_manager.c
+    src/instrument_manager.cpp
     src/midi.cpp
     src/guitar.c
     # got this hack from PIO example to fix some missing dependencies - should be fixed in later PICO SDK versions
