@@ -46,6 +46,10 @@ static volatile bool g_controller_alive = false;
 // but silent -> worth a recovery reboot) from no controller plugged in at all (don't
 // reboot -- a controller is only needed to establish auth, not to keep running).
 static volatile bool g_controller_seen = false;
+// Set when a running controller re-announces (replug that reset its GIP state). The
+// host must re-init it or it announces forever and never streams input; serviced
+// (debounced) by the core1 loop, which can safely block on the init tx.
+static volatile bool g_controller_reinit_pending = false;
 
 static xbox_packet_t out_packet;
 
@@ -117,6 +121,12 @@ void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
 
 void handle_controller_packet_running(const xbox_packet_t *data) {
     switch (data->frame.command) {
+        case CMD_ANNOUNCE:
+            // Controller re-attached and is announcing -- it won't stream input until
+            // the host re-inits it. Defer to the core1 loop (the init blocks on tx).
+            g_controller_reinit_pending = true;
+            break;
+
         case CMD_GUIDE_BTN:
             xbox_fifo_write(data);
             break;
@@ -307,8 +317,21 @@ void core1_main() {
     uint32_t t = timer_hw->timerawl;
     while ((uint32_t)(timer_hw->timerawl - t) < 10000u) tight_loop_contents();
     configure_host();
+    uint32_t last_reinit_us = 0;  // lock-free timer (timerawl) -- board_millis() spinlock hangs core1
     while (true) {
         tuh_task();
+        // A running controller that re-announced needs its init re-sent (Issue: a
+        // post-auth replug leaves it announcing forever, never streaming input).
+        // Debounce so we re-init at most ~2x/s instead of on every announce.
+        if (g_controller_reinit_pending) {
+            g_controller_reinit_pending = false;
+            uint32_t now = timer_hw->timerawl;
+            if (xbox_controller_idx != UINT8_MAX && (uint32_t)(now - last_reinit_us) > 500000u) {
+                last_reinit_us = now;
+                OPENRB_DEBUG("Controller re-announced -> re-init\r\n");
+                xboxh_reinit_controller(xbox_controller_addr, xbox_controller_idx);
+            }
+        }
         usb_log_task();        // drain the log ring out to the USB flash drive
     }
 }

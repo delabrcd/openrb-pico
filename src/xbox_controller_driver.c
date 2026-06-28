@@ -325,6 +325,20 @@ static bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
     return true;
 }
 
+// Re-drive a mounted controller's power-on/init. An Xbox One GIP controller sends
+// CMD_ANNOUNCE repeatedly after it (re)attaches until the host initialises it. Our
+// one-shot power-on in xboxh_set_config() fires at mount, which a controller that
+// fully re-powered its GIP layer announces *after* -- so it misses our init and then
+// announces forever, never streaming input. Re-sending the init in response to an
+// announce knocks it into the running state. Blocks on tx (wait_for_tx_complete pumps
+// tuh_task), so call it from the core1 host loop -- never from inside a host callback.
+bool xboxh_reinit_controller(uint8_t daddr, uint8_t idx) {
+    xbox_interface_t *p_itf = get_xbox_itf(daddr, idx);
+    TU_VERIFY(p_itf);
+    p_itf->is_powered = false;  // force xboxh_power_on_controller() to re-send
+    return xboxh_power_on_controller(p_itf);
+}
+
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     TU_LOG_USBH("XBOXH Set Config addr: %02x interface: %d", daddr, itf_num);
 

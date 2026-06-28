@@ -131,16 +131,49 @@ In `src/main.c` (`recovery_reboot_task`), because Layer 1 can still yield a zomb
 | no controller plugged at all | comes up without one, no reboot loop |
 | zombie that never thaws in 4 reboots | gives up, waits for a replug |
 
+## A related fix: post-auth controller replug (re-init on re-announce)
+
+Different trigger, same family. *After* auth (`STATE_RUNNING`), recovery is disarmed —
+the controller is optional, so a warm-reset reboot would be wrong. But the user can
+still **replug** the controller (e.g. to swap it). On a replug that fully re-powers the
+controller's GIP layer, it comes up sending `CMD_ANNOUNCE` repeatedly and **never
+streams input** — because our only controller init is the one-shot power-on/LED in
+`xboxh_set_config()`, fired at mount, which the just-attached controller announces
+*after* and so misses. Nothing in the old code responded to a `CMD_ANNOUNCE`, so it
+announced forever.
+
+Contrast with a *quick* replug where the controller keeps its powered/configured state:
+it just resumes `CMD_INPUT`/`CMD_STATUS` with no announce. The failure is specifically
+the controller that fully re-initialised its GIP state and is waiting for the host.
+
+**Fix:** respond to the re-announce. `handle_controller_packet_running()` flags a
+`CMD_ANNOUNCE` (running state only); the **core1** host loop services it by calling
+`xboxh_reinit_controller()` (clears `is_powered`, re-sends the power-on/LED). Debounced
+to ~2×/s and run from the loop rather than the host callback, because the init blocks on
+tx (`wait_for_tx_complete` pumps `tuh_task`) and must not re-enter a callback. The
+controller streams again within one re-init.
+
+This also cleared a secondary symptom: a `CMD_DROP_PLAYER` (drums unplugged) that the
+console ignored. The drop's device-side transfer never completed (`sending
+CMD_DROP_PLAYER` with no matching `OUT (CMD_DROP_PLAYER)`) — the announce flood was
+starving core0's device servicing. With the controller re-initialised the flood stops
+and the drop transfers and registers normally. The drop path itself was unchanged.
+
+- **Console-validated:** authed, replugged the controller into the bad announce-only
+  state, observed `Controller re-announced -> re-init` followed by `CMD_INPUT`/
+  `CMD_STATUS` resuming (52 input / 31 status, zero further announces), and `OUT
+  (CMD_DROP_PLAYER)` completing with the player dropping on-screen.
+
 ## Validation status
 
 - **Bench-validated** (no console attached): zombie recovery reliably lands a *live*
   controller — observed `zombie -> watchdog reboot -> heartbeat (CMD_STATUS) flowing`,
   and clean multi-reset batches come up live. The bench keeps recovery permanently
   armed (auth is never reached without a console), which exercises the recovery path.
-- **Needs a console to fully exercise:** the auth *disarm* path only triggers at
-  `STATE_RUNNING`, which requires the real auth handshake. The gate is a simple
-  `adapter_state >= STATE_RUNNING` check; confirm "post-auth unplug = no reboot" on a
-  real console session.
+- **Console-validated:** the auth *disarm* path triggers at `STATE_RUNNING` (real auth
+  handshake), and the post-auth replug re-init (above) was confirmed on a live console
+  session — a song played through with serial-MIDI drums, controller replugs recovered,
+  and drop-player registered.
 
 ## The real fix
 
