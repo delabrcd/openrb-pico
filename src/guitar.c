@@ -6,7 +6,7 @@
 #include "class/hid/hid_host.h"
 // clang-format on
 #include "instrument_manager.h"
-#include "orb_debug.h"
+#include "orb_log.h"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
 
@@ -46,11 +46,11 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     uint16_t vid, pid;
     tuh_vid_pid_get(dev_addr, &vid, &pid);
 
-    OPENRB_DEBUG("HID device address = %d, instance = %d is mounted\r\n", dev_addr, instance);
-    OPENRB_DEBUG("VID = %04x, PID = %04x\r\n", vid, pid);
+    LOG_INFO(CAT_DRUM, "HID device address = %d, instance = %d is mounted", dev_addr, instance);
+    LOG_DBG(CAT_DRUM, "VID = %04x, PID = %04x", vid, pid);
 
     if (is_hid_guitar(dev_addr)) {
-        OPENRB_DEBUG("GUITAR is in supported list\r\n");
+        LOG_INFO(CAT_DRUM, "GUITAR is in supported list");
         if (guitar_1_data.dev_addr == 0) {
             connect_instrument(GUITAR_ONE, &guitar_1_data.out_packet);
             guitar_1_data.dev_addr = dev_addr;
@@ -58,13 +58,13 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
             connect_instrument(GUITAR_TWO, &guitar_2_data.out_packet);
             guitar_2_data.dev_addr = dev_addr;
         } else {
-            OPENRB_DEBUG("Already have 2 guitars connected, can't add another...\r\n");
+            LOG_WARN(CAT_DRUM, "Already have 2 guitars connected, can't add another...");
             return;
         }
 
         // we need to request the first report
         if (!tuh_hid_receive_report(dev_addr, instance)) {
-            OPENRB_DEBUG("Error: cannot request to receive report\r\n");
+            LOG_ERR(CAT_DRUM, "Error: cannot request to receive report");
         }
     }
 }
@@ -84,9 +84,8 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx) {
 // static int test = 0;
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report,
                                 uint16_t len) {
-    OPENRB_DEBUG("Report Received\r\n");
-    OPENRB_DEBUG_BUF(report, len);
-    OPENRB_DEBUG("\r\n");
+    LOG_TRC(CAT_DRUM, "Report Received");
+    LOG_HEXDUMP(CAT_DRUM, LOG_LEVEL_TRACE, report, len);
 
     xbox_packet_t *packet = NULL;
     uint8_t player_number;
@@ -105,7 +104,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     xbox_fifo_write(packet);
 
     if (!tuh_hid_receive_report(dev_addr, instance)) {
-        OPENRB_DEBUG("Error: cannot request to receive report\r\n");
+        LOG_ERR(CAT_DRUM, "Error: cannot request to receive report");
     }
 }
 

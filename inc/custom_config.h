@@ -59,10 +59,12 @@ extern "C" {
 #undef CFG_TUSB_OS
 #define CFG_TUSB_OS OPT_OS_FREERTOS
 
-// temporary: route host-stack logs through the deferred (core1-safe) logger
-int dlog_printf(const char *fmt, ...);
+// Route host-stack logs through the deferred (core1-safe) logger, bucketed as
+// CAT_TUSB. orb_log_tusb_printf is a passthrough: TinyUSB emits partial line
+// fragments, so it does NOT prepend a per-call prefix (see src/orb_log.c).
+int orb_log_tusb_printf(const char *fmt, ...);
 #define CFG_TUSB_DEBUG 0
-#define CFG_TUSB_DEBUG_PRINTF dlog_printf
+#define CFG_TUSB_DEBUG_PRINTF orb_log_tusb_printf
 
 #define CFG_TUSB_MEM_SECTION
 #define CFG_TUSB_MEM_ALIGN TU_ATTR_ALIGNED(4)

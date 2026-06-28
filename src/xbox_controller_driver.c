@@ -5,6 +5,7 @@
 #include "common/tusb_verify.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
+#include "orb_log.h"
 #include "tusb_option.h"
 
 // Official controllers
@@ -382,7 +383,7 @@ bool xboxh_reset_controller(xbox_interface_t *p_itf) {
 }
 
 void xboxh_power_off_controllers() {
-    OPENRB_DEBUG("Powering OFF Xbox Controllers\r\n");
+    LOG_INFO(CAT_HOST, "Powering OFF Xbox Controllers");
 
     for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
         xboxh_power_off_controller(&_xbox_itf[i]);
@@ -390,7 +391,7 @@ void xboxh_power_off_controllers() {
 }
 
 void xboxh_power_on_controllers() {
-    OPENRB_DEBUG("Powering ON Xbox Controllers\r\n");
+    LOG_INFO(CAT_HOST, "Powering ON Xbox Controllers");
 
     for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
         xboxh_power_on_controller(&_xbox_itf[i]);
@@ -398,7 +399,7 @@ void xboxh_power_on_controllers() {
 }
 
 void xboxh_reset_controllers() {
-    OPENRB_DEBUG("RESETTING Xbox Controllers\r\n");
+    LOG_INFO(CAT_HOST, "RESETTING Xbox Controllers");
 
     for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
         xboxh_reset_controller(&_xbox_itf[i]);

@@ -17,6 +17,19 @@ function(add_board_target PROJECT_NAME BOARD_NAME SOURCES)
             -Og -g3 -fno-omit-frame-pointer -funwind-tables -fasynchronous-unwind-tables)
     endif()
 
+    # Embedded C++ policy (see docs/features/cpp-overhaul.md). Scoped to C++ TUs with a
+    # generator expression so the C sources don't warn on the C++-only flags.
+    #   -fno-exceptions : GCC's bare-metal ARM unwinder is not thread-safe, and under
+    #       FreeRTOS SMP two cores can throw at the same instant (Launchpad #1905459).
+    #       Throwing also allocates (__cxa_allocate_exception -> malloc) and is not
+    #       time-bounded -- disqualifying near the core1 PIO-USB path. Error handling
+    #       uses a Result<T>/bool style instead (inc/result.hpp).
+    #   -fno-rtti : no dynamic_cast/typeid in this codebase; drops type_info tables.
+    #   -fno-threadsafe-statics : function-local statics otherwise emit __cxa_guard_*
+    #       calls (a hidden lock) -- unacceptable on core1. Audit any new local static.
+    target_compile_options(${TARGET_NAME} PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti -fno-threadsafe-statics>)
+
     target_compile_definitions(${TARGET_NAME} PUBLIC ${COMMON_COMPILE_DEFS} -DORB_BOARD_ID=ORB_BOARD_ID_${BOARD_NAME})
     target_link_libraries(${TARGET_NAME} PUBLIC pico_pio_usb tinyusb_bsp tinyusb_host tinyusb_device usb_midi_host
         FreeRTOS-Kernel-Heap4)

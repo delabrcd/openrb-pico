@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "orb_debug.h"
+#include "orb_log.h"
 #include "pico.h"
 #include "util.h"
 #include "xbox_one_protocol.h"
@@ -80,7 +80,7 @@ int identifiers_get_announce(xbox_packet_t *packet) {
 
 int identifiers_get(uint8_t sequence, xbox_packet_t *packet) {
     if (sequence > identifiers_get_n()) return 1;
-    OPENRB_DEBUG("IDENTIFY SEQUENCE: %d\n", sequence);
+    LOG_DBG(CAT_DEV, "IDENTIFY SEQUENCE: %d", sequence);
 
     memcpy(packet->buffer, wla_indenfity_list[sequence].buffer, wla_indenfity_list[sequence].size);
     init_packet(packet, 0, wla_indenfity_list[sequence].size);

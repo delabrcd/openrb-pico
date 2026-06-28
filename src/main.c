@@ -31,7 +31,7 @@
 #include "instrument_manager.h"
 #include "midi.h"
 #include "orb_bsp.h"
-#include "orb_debug.h"
+#include "orb_log.h"
 #include "packet_queue.h"
 #include "pio_usb_configuration.h"
 #include "usb_log.h"
@@ -112,7 +112,7 @@ static inline bool xboxh_send(const xbox_packet_t *buffer) {
 }
 
 void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
-    OPENRB_DEBUG("Controller %d Connected\r\n", instance);
+    LOG_INFO(CAT_HOST, "Controller %d Connected", instance);
     adapter_set_controller_seen(true);  // a controller mounted this boot (may still be a zombie)
     // Always follow the most-recently-connected controller. On a replug the device
     // gets a new instance/address (and, if the old umount is missed or races, the
@@ -128,7 +128,7 @@ void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
 
 void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
     (void)dev_addr;
-    OPENRB_DEBUG("Controller %d Disconnected\r\n", instance);
+    LOG_INFO(CAT_HOST, "Controller %d Disconnected", instance);
     if (instance == adapter_get_controller_idx()) {
         adapter_clear_controller(instance);
         adapter_set_controller_alive(false);  // require a fresh heartbeat from the next mount
@@ -162,7 +162,7 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     adapter_set_controller_alive(true);  // a real packet arrived -> controller is alive, not a zombie
     g_host_last_rx_us = timer_hw->timerawl;  // feed the runtime-recovery silence timer (core1)
     g_host_rx_count++;                       // tick so recovery can detect a fresh heartbeat
-    OPENRB_DEBUG("IN FROM CONTROLLER: %s\r\n", get_command_name(data->frame.command));
+    LOG_TRC(CAT_HOST, "IN FROM CONTROLLER: %s", get_command_name(data->frame.command));
     switch (adapter_get_state()) {
         case STATE_AUTHENTICATING:
             xbox_fifo_write(data);
@@ -181,7 +181,7 @@ void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t 
     (void)idx;
     (void)data;
     (void)ndata;
-    OPENRB_DEBUG("Sent Controller %d bytes (%s)\r\n", ndata, get_command_name(data->frame.command));
+    LOG_TRC(CAT_HOST, "Sent Controller %d bytes (%s)", ndata, get_command_name(data->frame.command));
 }
 
 static void handle_auth(const xbox_packet_t *packet) {
@@ -189,13 +189,13 @@ static void handle_auth(const xbox_packet_t *packet) {
         packet->buffer[3] == 2 && packet->buffer[4] == 1 && packet->buffer[5] == 0) {
         set_auth_led(true);
 
-        OPENRB_DEBUG("AUTHENTICATED!\r\n");
+        LOG_INFO(CAT_DEV, "AUTHENTICATED!");
         adapter_set_state(STATE_RUNNING);
 
         notify_xbox_of_all_instruments(&out_packet);
     }
 
-    OPENRB_DEBUG("Sending controller %d bytes\r\n", packet->length);
+    LOG_DBG(CAT_DEV, "Sending controller %d bytes", packet->length);
     xboxh_send(packet);
     return;
 }
@@ -206,7 +206,7 @@ static void handle_identify(const xbox_packet_t *packet) {
         case CMD_IDENTIFY:
         case CMD_ACKNOWLEDGE:
             if (identify_sequence >= identifiers_get_n()) {
-                OPENRB_DEBUG("Starting identify sequence over\r\n");
+                LOG_INFO(CAT_DEV, "Starting identify sequence over");
                 identify_sequence = 0;
             }
             identifiers_get(identify_sequence, &out_packet);
@@ -214,7 +214,7 @@ static void handle_identify(const xbox_packet_t *packet) {
             identify_sequence++;
             break;
         case CMD_AUTHENTICATE:
-            OPENRB_DEBUG("Moving to Authenticate\r\n");
+            LOG_INFO(CAT_DEV, "Moving to Authenticate");
             adapter_set_state(STATE_AUTHENTICATING);
             return handle_auth(packet);
             break;
@@ -227,7 +227,7 @@ static void handle_identify(const xbox_packet_t *packet) {
 static void handle_init(const xbox_packet_t *packet) {
     switch (packet->frame.command) {
         case CMD_IDENTIFY:
-            OPENRB_DEBUG("Moving to Identify\r\n");
+            LOG_INFO(CAT_DEV, "Moving to Identify");
             adapter_set_state(STATE_IDENTIFYING);
             return handle_identify(packet);
         default:
@@ -291,7 +291,7 @@ static void announce_task() {
     static unsigned long last_announce_time = 0;
     if ((board_millis() - last_announce_time) > ANNOUNCE_INTERVAL_MS) {
         if (adapter_get_controller_idx() < UINT8_MAX) {
-            OPENRB_DEBUG("ANNOUNCING\r\n");
+            LOG_INFO(CAT_DEV, "ANNOUNCING");
             identifiers_get_announce(&out_packet);
             xbox_fifo_write(&out_packet);
             last_announce_time = board_millis();
@@ -300,7 +300,7 @@ static void announce_task() {
 }
 
 static void configure_host() {
-    OPENRB_DEBUG("configuring usb host stack\r\n");
+    LOG_INFO(CAT_HOST, "configuring usb host stack");
 
     pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
     pio_cfg.pin_dp = PIN_USB_HOST_DP;
@@ -310,7 +310,7 @@ static void configure_host() {
     dma_channel_unclaim(pio_cfg.tx_ch);
     tuh_configure(HOST_CONTROLLER_ID, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
     tuh_init(HOST_CONTROLLER_ID);
-    OPENRB_DEBUG("finished configuring usb host\r\n");
+    LOG_INFO(CAT_HOST, "finished configuring usb host");
 
     set_usb_host(true);
 }
@@ -392,8 +392,8 @@ static void host_recovery_task(void) {
             last_attempt_us = now;
             g_host_last_rx_us = now;       // suppress the silence backstop during re-enumeration
             xboxh_clear_error_streak();    // fresh count; GRACE lets re-enum land before it re-trips
-            OPENRB_DEBUG("HOST RECOVERY: controller wedged -> hub reset %u/%u\r\n",
-                         (unsigned)attempts, (unsigned)HOST_RECOV_MAX);
+            LOG_WARN(CAT_RECOV, "HOST RECOVERY: controller wedged -> hub reset %u/%u",
+                     (unsigned)attempts, (unsigned)HOST_RECOV_MAX);
             reset_usb_hub();  // RESET# pulse (busy_wait_ms, core1-safe); TinyUSB re-enumerates
         }
     }
@@ -431,7 +431,7 @@ void usb_host_task(void *param) {
             if (adapter_get_controller(&idx, &addr) &&
                 (uint32_t)(now - last_reinit_us) > 500000u) {
                 last_reinit_us = now;
-                OPENRB_DEBUG("Controller re-announced -> re-init\r\n");
+                LOG_WARN(CAT_RECOV, "Controller re-announced -> re-init");
                 xboxh_reinit_controller(addr, idx);
             }
         }
@@ -515,8 +515,8 @@ static void recovery_reboot_task(void) {
     if (adapter_get_state() >= STATE_RUNNING) {  // authenticated -> controller now optional
         disarmed = true;
         watchdog_hw->scratch[RECOV_SCRATCH] = 0;  // clear so the next reset starts fresh
-        if (g_recov_count) OPENRB_DEBUG("RECOVERY: authenticated after %lu reboot(s)\r\n",
-                                        (unsigned long)g_recov_count);
+        if (g_recov_count) LOG_WARN(CAT_RECOV, "RECOVERY: authenticated after %lu reboot(s)",
+                                    (unsigned long)g_recov_count);
         return;
     }
     if (adapter_controller_alive()) { silent_since_ms = 0; return; }  // live -> healthy, nothing to do
@@ -531,13 +531,13 @@ static void recovery_reboot_task(void) {
     if (g_recov_count >= RECOV_MAX) {  // a zombie that won't thaw across retries
         disarmed = true;
         watchdog_hw->scratch[RECOV_SCRATCH] = 0;
-        OPENRB_DEBUG("RECOVERY: controller stayed silent after %u reboots; replug needed\r\n", RECOV_MAX);
+        LOG_ERR(CAT_RECOV, "RECOVERY: controller stayed silent after %u reboots; replug needed", RECOV_MAX);
         return;
     }
     // Probabilistic: reboot and try again -- a later attempt usually lands a live one.
     watchdog_hw->scratch[RECOV_SCRATCH] = RECOV_MAGIC | (g_recov_count + 1u);
-    OPENRB_DEBUG("RECOVERY: controller silent pre-auth -> watchdog reboot %lu/%u\r\n",
-                 (unsigned long)(g_recov_count + 1u), RECOV_MAX);
+    LOG_WARN(CAT_RECOV, "RECOVERY: controller silent pre-auth -> watchdog reboot %lu/%u",
+             (unsigned long)(g_recov_count + 1u), RECOV_MAX);
     dlog_drain();  // flush the log before we go
     watchdog_reboot(0, 0, 0);
     while (1) tight_loop_contents();
@@ -557,20 +557,21 @@ static void init() {
     // before the scheduler starts; safe to create here alongside the other init.
     app_queues_init();
 
-    // dlog owns the debug UART (uart1, GPIO24/25); OPENRB_DEBUG and the TinyUSB
-    // logs both drain through it deferred, so no synchronous stdio UART is set up.
-    dlog_init();
-    OPENRB_DEBUG("openrb debug console initialized...\r\n");
+    // orb_log owns the debug UART (uart1, GPIO24/25) via dlog and attaches the
+    // USB-stick mirror sink; the logger and the TinyUSB logs both drain through it
+    // deferred, so no synchronous stdio UART is set up.
+    orb_log_init();
+    LOG_INFO(CAT_SYS, "openrb debug console initialized...");
 
     // Reset-cause instrumentation: what kind of reset brought us here?
     {
         uint32_t cr = vreg_and_chip_reset_hw->chip_reset;
-        OPENRB_DEBUG("RESET CAUSE: chip_reset=0x%08lx POR=%d RUN=%d PSM=%d wd_reboot=%d\r\n",
-                     (unsigned long)cr,
-                     !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_POR_BITS),
-                     !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_RUN_BITS),
-                     !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_PSM_RESTART_BITS),
-                     watchdog_caused_reboot());
+        LOG_INFO(CAT_SYS, "RESET CAUSE: chip_reset=0x%08lx POR=%d RUN=%d PSM=%d wd_reboot=%d",
+                 (unsigned long)cr,
+                 !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_POR_BITS),
+                 !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_RUN_BITS),
+                 !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_PSM_RESTART_BITS),
+                 watchdog_caused_reboot());
 
         // Recover our auto-reboot attempt count: only trust the scratch register if
         // *we* triggered this reboot via watchdog. A power-on / physical reset clears
@@ -582,16 +583,15 @@ static void init() {
             g_recov_count = 0;
         }
         watchdog_hw->scratch[RECOV_SCRATCH] = 0;
-        OPENRB_DEBUG("RECOVERY: attempt count = %lu\r\n", (unsigned long)g_recov_count);
+        LOG_INFO(CAT_RECOV, "RECOVERY: attempt count = %lu", (unsigned long)g_recov_count);
     }
 
-    // Mirror the deferred log to a USB flash drive on the hub (usb_log). core0
-    // pushes drained bytes into the ring here; core1 (which owns the USB host
-    // stack) writes them out to LOG.TXT on the drive.
-    dlog_set_sink(usb_log_write);
+    // The deferred log's USB-stick mirror (usb_log_write sink) was attached by
+    // orb_log_init() above: core0 pushes drained bytes into the ring and core1
+    // (which owns the USB host stack) writes them out to LOG.TXT on the drive.
 
     xbox_fifo_init();
-    OPENRB_DEBUG("finished initializing xbox fifo...\r\n");
+    LOG_INFO(CAT_SYS, "finished initializing xbox fifo...");
 
     gpio_init(PIN_LED);
     gpio_set_dir(PIN_LED, true);
@@ -602,16 +602,16 @@ static void init() {
 
     // The USB host stack now comes up inside usb_host_task on core1 once the
     // FreeRTOS scheduler launches that core (see main()).
-    OPENRB_DEBUG("starting usb device stack\r\n");
+    LOG_INFO(CAT_SYS, "starting usb device stack");
     tud_init(TUD_OPT_RHPORT);
 
     serial_midi_init();
-    OPENRB_DEBUG("finished initializing serial midi...\r\n");
+    LOG_INFO(CAT_SYS, "finished initializing serial midi...");
 
     memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
 
     adapter_set_state(STATE_INIT);
-    OPENRB_DEBUG("finished init, starting main process...\r\n");
+    LOG_INFO(CAT_SYS, "finished init, starting main process...");
 }
 
 // ---- core0 per-concern tasks (all pinned to core0; see app_tasks.cpp) -----------

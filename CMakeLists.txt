@@ -73,10 +73,11 @@ set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_D
 set(SOURCES
     src/main.c
     src/adapter_ctx.c
-    src/app_queues.c
+    src/app_queues.cpp
     src/app_tasks.cpp
     src/freertos_hooks.c
     src/dlog.c
+    src/orb_log.c
     src/usb_log.c
     ${FATFS_DIR}/ff.c
     ${FATFS_DIR}/ffsystem.c

@@ -6,7 +6,7 @@
 #include "ff.h"       // must precede diskio.h (provides BYTE/UINT/LBA_t)
 #include "diskio.h"
 #include "hardware/timer.h"
-#include "orb_debug.h"
+#include "orb_log.h"
 #include "tusb.h"
 
 //--------------------------------------------------------------------+
@@ -21,13 +21,33 @@ static volatile uint8_t ulog_buf[ULOG_SIZE];
 static volatile uint32_t ulog_head;  // producer (core0)
 static volatile uint32_t ulog_tail;  // consumer (core1)
 
+// ANSI-SGR strip state machine. The dlog ring carries inline color codes meant
+// for the UART sink; LOG.TXT must stay clean. We skip ESC '[' ... <final byte>.
+// usb_log_write is the single producer (core0 drain), so this static state is not
+// shared across cores; it persists across calls so a sequence may span chunks.
+enum { ANSI_NORMAL = 0, ANSI_ESC, ANSI_CSI };
+static uint8_t s_ansi_state;
+
 void usb_log_write(const uint8_t *data, uint32_t len) {
     uint32_t h = ulog_head;
     uint32_t tail = ulog_tail;
     for (uint32_t i = 0; i < len; i++) {
+        uint8_t c = data[i];
+        switch (s_ansi_state) {
+            case ANSI_ESC:
+                if (c == '[') { s_ansi_state = ANSI_CSI; continue; }
+                s_ansi_state = ANSI_NORMAL;  // lone ESC: drop it, keep this byte
+                break;
+            case ANSI_CSI:
+                if (c >= 0x40 && c <= 0x7e) s_ansi_state = ANSI_NORMAL;  // final byte
+                continue;                                                // skip params + final
+            default:  // ANSI_NORMAL
+                if (c == 0x1b) { s_ansi_state = ANSI_ESC; continue; }
+                break;
+        }
         uint32_t nh = (h + 1u) & ULOG_MASK;
         if (nh == tail) break;  // ring full -> drop the rest
-        ulog_buf[h] = data[i];
+        ulog_buf[h] = c;
         h = nh;
     }
     ulog_head = h;
@@ -56,19 +76,19 @@ static bool open_log(void) {
     char path[4];
     drive_path(s_dev_addr, path);
     if (f_mount(&s_fatfs, path, 1) != FR_OK) {
-        OPENRB_DEBUG("[USBLOG] f_mount failed\r\n");
+        LOG_ERR(CAT_USBLOG, "f_mount failed");
         return false;
     }
     char fpath[16];
     snprintf(fpath, sizeof(fpath), "%sLOG.TXT", path);  // e.g. "1:LOG.TXT"
     FRESULT fr = f_open(&s_file, fpath, FA_WRITE | FA_OPEN_APPEND);
     if (fr != FR_OK) {
-        OPENRB_DEBUG("[USBLOG] f_open %s failed (%d)\r\n", fpath, fr);
+        LOG_ERR(CAT_USBLOG, "f_open %s failed (%d)", fpath, fr);
         f_mount(0, path, 0);
         return false;
     }
-    OPENRB_DEBUG("[USBLOG] streaming log to %s (size=%lu)\r\n", fpath,
-                 (unsigned long)f_size(&s_file));
+    LOG_INFO(CAT_USBLOG, "streaming log to %s (size=%lu)", fpath,
+             (unsigned long)f_size(&s_file));
     return true;
 }
 
@@ -98,8 +118,8 @@ void usb_log_task(void) {
         if (fr == FR_OK && wr == n) {
             ulog_tail = tail;  // commit consumption only on full success
         } else {
-            OPENRB_DEBUG("[USBLOG] f_write err fr=%d wr=%lu/%lu\r\n", fr, (unsigned long)wr,
-                         (unsigned long)n);
+            LOG_ERR(CAT_USBLOG, "f_write err fr=%d wr=%lu/%lu", fr, (unsigned long)wr,
+                    (unsigned long)n);
         }
     }
 
@@ -119,10 +139,10 @@ void usb_log_task(void) {
 void tuh_msc_mount_cb(uint8_t dev_addr) {
     uint32_t bc = tuh_msc_get_block_count(dev_addr, 0);
     uint32_t bs = tuh_msc_get_block_size(dev_addr, 0);
-    OPENRB_DEBUG("[USBLOG] stick mounted addr=%d (%lu MB)\r\n", dev_addr,
-                 (unsigned long)((uint64_t)bc * bs / (1024u * 1024u)));
+    LOG_INFO(CAT_USBLOG, "stick mounted addr=%d (%lu MB)", dev_addr,
+             (unsigned long)((uint64_t)bc * bs / (1024u * 1024u)));
     if (bs != 512) {
-        OPENRB_DEBUG("[USBLOG] block size %lu unsupported, ignoring\r\n", (unsigned long)bs);
+        LOG_WARN(CAT_USBLOG, "block size %lu unsupported, ignoring", (unsigned long)bs);
         return;
     }
     s_dev_addr = dev_addr;
@@ -130,7 +150,7 @@ void tuh_msc_mount_cb(uint8_t dev_addr) {
 }
 
 void tuh_msc_umount_cb(uint8_t dev_addr) {
-    OPENRB_DEBUG("[USBLOG] stick unmounted addr=%d\r\n", dev_addr);
+    LOG_INFO(CAT_USBLOG, "stick unmounted addr=%d", dev_addr);
     if (dev_addr == s_dev_addr) {
         if (s_fs_ready) {
             char path[4];

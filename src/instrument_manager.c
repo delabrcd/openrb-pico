@@ -8,6 +8,7 @@
 #include "adapter.h"
 #include "adapter_ctx.h"
 #include "orb_debug.h"
+#include "orb_log.h"
 #include "packet_queue.h"
 #include "util.h"
 #include "xbox_one_protocol.h"
@@ -49,7 +50,7 @@ static inline void grab_packet(xbox_packet_t *pkt, instruments_e instrument, boo
 }
 
 void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space) {
-    OPENRB_DEBUG("notify_xbox_of_all_instruments\r\n");
+    LOG_DBG(CAT_DEV, "notify_xbox_of_all_instruments");
     for (int i = FIRST_INSTRUMENT; i < N_INSTRUMENTS; i++) {
         if (!connected_instruments[i]) continue;
         grab_packet(scratch_space, i, true);
@@ -58,17 +59,19 @@ void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space) {
 }
 
 void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t *scratch_space) {
-    OPENRB_DEBUG("notify_xbox_of_single_instrument: %d", instrument);
     if (instrument < N_INSTRUMENTS) {
-        OPENRB_DEBUG(" - %s\r\n", instrument_names[instrument]);
+        LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s", instrument,
+                instrument_names[instrument]);
         grab_packet(scratch_space, instrument, true);
         xbox_fifo_write(scratch_space);
+    } else {
+        LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d", instrument);
     }
 }
 
 void connect_instrument(instruments_e instrument, xbox_packet_t *scratch_space) {
     if (connected_instruments[instrument]) return;
-    OPENRB_DEBUG("%s connected!\r\n", instrument_names[instrument]);
+    LOG_INFO(CAT_DEV, "%s connected!", instrument_names[instrument]);
     connected_instruments[instrument] = 1;
 
     if (adapter_get_state() != STATE_RUNNING) return;
@@ -79,7 +82,7 @@ void connect_instrument(instruments_e instrument, xbox_packet_t *scratch_space) 
 
 void disconnect_instrument(instruments_e instrument, xbox_packet_t *scratch_space) {
     if (!connected_instruments[instrument]) return;
-    OPENRB_DEBUG("%s disconnected!\r\n", instrument_names[instrument]);
+    LOG_INFO(CAT_DEV, "%s disconnected!", instrument_names[instrument]);
     connected_instruments[instrument] = 0;
 
     if (adapter_get_state() != STATE_RUNNING) return;

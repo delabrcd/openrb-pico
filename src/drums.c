@@ -9,6 +9,7 @@
 #include "bsp/board_api.h"
 #include "instrument_manager.h"
 #include "midi.h"
+#include "orb_log.h"
 #include "packet_queue.h"
 #include "usb_midi_host.h"
 #include "xbox_one_protocol.h"
@@ -112,7 +113,7 @@ static void note_on(uint8_t note, uint8_t velocity) {
     update_drum_state_with_midi_input(out, 1, &drum_state.input_pkt.drum_input);
     drum_state.flags |= changed_flag;
 
-    OPENRB_DEBUG("NOTE ON: %d %d\r\n", out, velocity);
+    LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", out, velocity);
 
     drum_state.midi_output_states[out].triggered = true;
     drum_state.midi_output_states[out].triggered_at = board_millis();
@@ -171,7 +172,7 @@ void __not_in_flash_func(drum_task)() {
         uint32_t time_since_trigger =
                 current_time - drum_state.midi_output_states[out].triggered_at;
         if (time_since_trigger > TRIGGER_HOLD_MS) {
-            OPENRB_DEBUG("NOTE OFF: %d\r\n", out);
+            LOG_DBG(CAT_DRUM, "NOTE OFF: %d", out);
             update_drum_state_with_midi_input(out, 0, &drum_state.input_pkt.drum_input);
             drum_state.midi_output_states[out].triggered = false;
             drum_state.flags |= changed_flag;
@@ -193,19 +194,19 @@ void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t 
     (void)num_cables_rx;
     (void)num_cables_tx;
 
-    OPENRB_DEBUG(
-            "MIDI device address = %u, IN endpoint %u has %u cables, OUT endpoint %u has %u "
-            "cables\r\n",
-            dev_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
+    LOG_INFO(CAT_DRUM,
+             "MIDI device address = %u, IN endpoint %u has %u cables, OUT endpoint %u has %u "
+             "cables",
+             dev_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
 
     if (drum_state.midi_dev_addr == 0) {
         // then no MIDI device is currently connected
         drum_state.midi_dev_addr = dev_addr;
         connect_instrument(DRUMS, &drum_state.input_pkt);
     } else {
-        OPENRB_DEBUG(
-                "A different USB MIDI Device is already connected.\r\nOnly one device at a time is "
-                "supported in this program\r\nDevice is disabled\r\n");
+        LOG_WARN(CAT_DRUM,
+                 "A different USB MIDI Device is already connected. Only one device at a time is "
+                 "supported in this program; device is disabled");
     }
 }
 
@@ -215,11 +216,11 @@ void tuh_midi_umount_cb(uint8_t dev_addr, uint8_t instance) {
 
     if (dev_addr == drum_state.midi_dev_addr) {
         drum_state.midi_dev_addr = 0;
-        OPENRB_DEBUG("MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
-                     instance);
+        LOG_INFO(CAT_DRUM, "MIDI device address = %d, instance = %d is unmounted", dev_addr,
+                 instance);
         disconnect_instrument(DRUMS, &drum_state.input_pkt);
     } else {
-        OPENRB_DEBUG("Unused MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr,
-                     instance);
+        LOG_INFO(CAT_DRUM, "Unused MIDI device address = %d, instance = %d is unmounted", dev_addr,
+                 instance);
     }
 }
