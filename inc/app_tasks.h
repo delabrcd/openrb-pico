@@ -14,7 +14,9 @@ extern "C" {
 // Task entry points (defined in src/main.c). core1 hosts ONLY usb_host_task; every
 // other task is pinned to core0.
 void usb_host_task(void *param);
-void core0_task(void *param);
+void usb_device_task(void *param);  // device stack + send drain
+void drum_input_task(void *param);  // USB-MIDI + serial instrument input
+void housekeeping_task(void *param);  // announce + recovery + log drain
 
 // Create all application tasks with their stacks/affinities. Call once from main()
 // before vTaskStartScheduler().

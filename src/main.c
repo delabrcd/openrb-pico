@@ -614,24 +614,41 @@ static void init() {
     OPENRB_DEBUG("finished init, starting main process...\r\n");
 }
 
-// Core0 task: the USB device stack plus all the device-side feature work. This is
-// still the original superloop body verbatim -- Phase 1 only moves it into a
-// FreeRTOS task (pinned to core0) so we can prove the SMP scheduler boots and the
-// core1 PIO-USB host survives under it, before splitting these into per-concern
-// tasks (Phase 3) or flipping TinyUSB to the FreeRTOS OSAL (Phase 2).
-void core0_task(void *param) {
+// ---- core0 per-concern tasks (all pinned to core0; see app_tasks.cpp) -----------
+
+// USB device stack + the send drain. These stay in ONE task because both touch the
+// device endpoint (tud_task processes events; xboxd_send_task claims the IN endpoint),
+// and TinyUSB device-stack access must be serialized. tud_task_ext(4) blocks on the
+// device event queue but wakes at least every 4ms to drain device_tx to the console.
+void usb_device_task(void *param) {
     (void)param;
     while (true) {
-        // tud_task_ext(1): block on the device event queue but wake at least every 1ms
-        // so the rest of the device-side work (send drain, drums, announce, recovery,
-        // log) still runs when the console is idle. (Under OPT_OS_FREERTOS a plain
-        // tud_task() blocks forever.) Phase 3 splits these into per-concern tasks.
-        tud_task_ext(1, false);
-        announce_task();
+        tud_task_ext(4, false);
         xboxd_send_task();
+    }
+}
+
+// Instrument input: drains the USB-MIDI note queue (filled on core1) + serial MIDI,
+// ages out hits, and writes drum packets to the device fifo. ~2ms cadence matches the
+// drum trigger/output timing.
+void drum_input_task(void *param) {
+    (void)param;
+    while (true) {
         drum_task();
-        recovery_reboot_task();  // warm-reset recovery: auto-reboot a zombie until it's live
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+
+// Low-priority periodic background: controller-announce heartbeat (gated to STATE_INIT,
+// fires ~every 2s internally), warm-reset zombie recovery, and draining the deferred
+// log to UART/USB. Grouped because all three are coarse periodic chores.
+void housekeeping_task(void *param) {
+    (void)param;
+    while (true) {
+        announce_task();
+        recovery_reboot_task();
         dlog_drain();
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
