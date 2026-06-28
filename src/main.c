@@ -654,7 +654,7 @@ void housekeeping_task(void *param) {
 
 int main() {
     init();
-    app_start_tasks();      // creates + pins usb_host_task (core1) and core0_task (core0)
+    app_start_tasks();      // creates + pins usb_host_task (core1) and the core0 tasks
     vTaskStartScheduler();  // launches core1; never returns
     for (;;) {
     }

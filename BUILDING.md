@@ -6,15 +6,20 @@ Quick reference for working on the RP2040 firmware. Everything runs in Docker vi
 [`scripts/`](scripts/) wrap the compose commands — prefer them over driving compose or
 `openocd` by hand.
 
+- **Current architecture / handoff** — the firmware is now a **FreeRTOS SMP** build
+  (core1 = the sole PIO-USB host task; core0 = USB-device + feature tasks):
+  [`docs/FREERTOS-PORT.md`](docs/FREERTOS-PORT.md). Read this first;
+  it and `DEBUGGING.md` carry the detail.
 - On-target debugging — the persistent `dbgd` daemon, **dual-core backtraces**, and
   FreeRTOS thread awareness: [`docs/DEBUGGING.md`](docs/DEBUGGING.md).
-- Deep porting writeup (core1 race, the 240 MHz fix, etc.): [`PORTING.md`](PORTING.md).
+- Deep porting writeup (core1 race, the original clock/PIO-USB work): [`PORTING.md`](PORTING.md).
+  Pre-FreeRTOS history — the firmware runs at **120 MHz** (unchanged by the FreeRTOS port).
 - Why the submodule patches / clock exist, and the **hardware testing caveats**:
   [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md) — read this before trusting
   any enumeration A/B result.
-- How the controller is brought back after a warm reset (re-reset enumeration +
-  heartbeat-keyed auto-reboot, and why it's a hardware limitation):
-  [`docs/warm-reset-recovery.md`](docs/warm-reset-recovery.md).
+- How the controller is brought back after it wedges or a warm reset (runtime hub-reset
+  recovery without a reboot, with heartbeat-keyed auto-reboot as last resort, and why
+  it's a hardware limitation): [`docs/warm-reset-recovery.md`](docs/warm-reset-recovery.md).
 
 ## Prerequisites
 
@@ -123,7 +128,9 @@ from flash during the op, which fights the timing-critical PIO-USB host. Writing
 USB drive never touches XIP, so that whole hazard is gone. (See the git history /
 `docs/usb-stack-saga.md` for the QSPI saga.)
 
-How it works (`src/usb_log.c`, FatFs from the SDK's TinyUSB at `lib/fatfs`):
+How it works (`src/usb_log.c`, FatFs sourced from the **vendored** TinyUSB at
+`external/tinyusb` — `PICO_TINYUSB_PATH/lib/fatfs/source`, the `FATFS_DIR` in
+[`CMakeLists.txt`](CMakeLists.txt), *not* pico-sdk's bundled tinyusb):
 
 - **core0** drains `dlog` and pushes bytes into a lock-free SPSC RAM ring
   (`usb_log_write`, the `dlog` sink) — cheap, non-blocking.

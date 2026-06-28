@@ -1,8 +1,8 @@
 /*
  * Centralised FreeRTOS task creation. Each long-lived task gets a StaticTask<>
- * instance (owns its stack + TCB) and is pinned to a core here. As the superloop is
- * split into per-concern tasks (Phases 3-4), add instances below rather than
- * repeating the static-buffer boilerplate at each call site.
+ * instance (owns its stack + TCB) and is pinned to a core here. The superloop has been
+ * split into per-concern tasks; add instances below rather than repeating the
+ * static-buffer boilerplate at each call site.
  */
 #include "static_task.hpp"
 

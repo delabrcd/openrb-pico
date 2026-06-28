@@ -1,14 +1,28 @@
-# Warm-reset controller recovery
+# Controller recovery (warm-reset & runtime wedge)
 
-How the adapter brings the console controller back online after a **warm reset** of
-the RP2040 (an SWD/`SYSRESETREQ` reset, a physical RESET-button press, or a
-firmware/watchdog reboot), without the user having to replug it.
+How the adapter brings the console controller back online when it goes dead — either
+after a **warm reset** of the RP2040 (an SWD/`SYSRESETREQ` reset, a physical
+RESET-button press, or a firmware/watchdog reboot) or when the running hub/controller
+**wedges mid-session** — without the user having to replug it.
 
 This is one of the genuinely hard problems on the rev-0.2 board. The short version:
-the controller cannot be power-cycled by firmware, so a warm reset can leave it in a
-broken USB state, and we recover it with a two-layer software workaround that is
-reliable but *probabilistic*. The real fix is a hardware change (see
-[The real fix](#the-real-fix)).
+the controller cannot be power-cycled by firmware, so it can get stuck in a broken USB
+state (a "silent zombie" — still mounted but sending nothing). The root cause is a
+hardware limitation; the real fix is a hardware change (see [The real fix](#the-real-fix)).
+Until then we recover in software, and the recovery story has **two tiers**:
+
+1. **Runtime hub-reset recovery (preferred, no reboot)** — the running firmware detects
+   the wedge and pulses the hub's RESET# to force a clean re-enumeration *in place*. See
+   [Primary recovery](#primary-recovery--runtime-hub-reset-no-reboot). This is the path
+   that handles a mid-session wedge and, since the FreeRTOS SMP port, the warm-reset
+   zombie too.
+2. **Watchdog-reboot recovery (last resort)** — the older, *probabilistic*
+   reboot-and-retry, kept as a fallback for when the runtime path can't bring the
+   controller back. See [Last resort](#last-resort--heartbeat-keyed-watchdog-reboot).
+
+The runtime path lives on core1 in the FreeRTOS SMP build — see
+[`FREERTOS-PORT.md`](FREERTOS-PORT.md) ("Runtime controller recovery") for how it fits
+the task topology.
 
 ---
 
@@ -61,7 +75,9 @@ re-resets the port.
 
 ### 2. The "zombie" — enumerated but silent
 
-Even once we *do* get it to enumerate (see Layer 1 below), a warm-reset controller can
+Even once we *do* get it to enumerate (see [the enum re-reset
+fix](#supporting-fix--re-reset-the-hub-port-on-every-enum-attempt) below), a warm-reset
+controller can
 come back as a **zombie**: it mounts (`Controller 0 Connected`) but never sends a
 single packet — no heartbeat (`CMD_STATUS`), no input (`CMD_INPUT`), LED off. Compare:
 
@@ -78,9 +94,53 @@ true liveness signal is **its packet stream**.
 Whether a given warm reset yields a live controller or a zombie is **probabilistic** —
 which is why pressing physical RESET a second time often fixes it.
 
-## The fix (two layers)
+## The fix
 
-### Layer 1 — re-reset the hub port on every enum attempt
+The recovery is layered. The **primary** mechanism (added with the FreeRTOS SMP port)
+is a runtime, non-reboot hub reset; a TinyUSB-fork tweak makes the re-enumeration
+*succeed*; and the old auto-reboot is now only a **last resort**.
+
+### Primary recovery — runtime hub-reset (no reboot)
+
+`host_recovery_task()` in `src/main.c` runs on **core1**, inside `usb_host_task` (the
+sole core1 task — see [`FREERTOS-PORT.md`](FREERTOS-PORT.md)). When the controller goes
+silent-zombie it pulses the hub's **RESET#** to force a clean re-enumeration **without
+rebooting the RP2040** — so it works **pre- and post-auth**, unlike the reboot path.
+
+Asserting RESET# drops the hub's upstream pull-up → the root port finally sees SE0 →
+Pico-PIO-USB raises a disconnect → TinyUSB's `process_removed_device()` tears down the
+hub and, recursively, the downstream controller (a clean umount), then re-enumerates the
+whole tree on release. No `tuh_deinit` / host re-init — it leans on the normal,
+well-tested attach/detach path; only the wedged silicon needs the RESET# kick. (Custom
+board only — `FEATHER` has no hub, so the task compiles out.)
+
+It detects the wedge **two ways** (constants in `src/main.c`):
+
+- **Fast (primary):** a run of consecutive interrupt-IN failures —
+  `xboxh_in_error_streak() >= HOST_RECOV_ERR_STREAK` (100, ~1.25 s). A wedged CH334R
+  fails the controller's IN poll continuously (~80/s), whereas a healthy *idle* pad
+  produces **no** IN completions between its sparse ~20 s `CMD_STATUS` heartbeats (NAKs
+  don't complete) — so the streak is **false-positive-free** and recovers ~1–3 s after a
+  wedge. The streak signal lives in `src/xbox_controller_driver.c`
+  (`xboxh_in_error_streak()` / `xboxh_clear_error_streak()`).
+- **Backstop:** total silence longer than `HOST_RECOV_SILENCE_US` (30 s), in case a
+  wedge ever stops the IN poll entirely instead of failing it. The threshold must exceed
+  the pad's ~20 s idle keep-alive (which refreshes `g_host_last_rx_us`), so 30 s clears
+  the heartbeat with margin. In active play input streams sub-second, so neither path
+  fires spuriously.
+
+It is **bounded and self-clearing**: at most `HOST_RECOV_MAX` (3) RESET# pulses, spaced
+`HOST_RECOV_GRACE_US` (3 s) apart so each re-enumeration can land before the next. It
+only arms if a controller actually mounted this boot (`adapter_controller_seen()`), and a
+single fresh heartbeat (`g_host_rx_count` advances) exits recovery and refills the
+budget. If the budget is exhausted it **stands down** (a clean unplug also looks like a
+wedge, so it won't thrash the hub forever) and hands off to the last-resort reboot path.
+
+That hand-off is the `g_runtime_recovery_engaged` flag: while the runtime path is
+actively recovering, it is `true` and the core0 watchdog-reboot path **defers**; it goes
+`false` only once the runtime path gives up, letting the reboot path take its turn.
+
+### Supporting fix — re-reset the hub port on every enum attempt
 
 In the vendored TinyUSB fork (`external/tinyusb`, branch `openrb`),
 `host/usbh.c` `process_enumeration()`:
@@ -94,9 +154,15 @@ This makes the controller *enumerate* reliably. (The same commit also reverts an
 earlier `PORT_POWER` connection-scan experiment, which destabilised the hub and broke
 replug — a dead end; the re-reset is the real fix.)
 
-### Layer 2 — heartbeat-keyed, auth-gated, bounded auto-reboot
+### Last resort — heartbeat-keyed, auth-gated, bounded auto-reboot
 
-In `src/main.c` (`recovery_reboot_task`), because Layer 1 can still yield a zombie:
+This is the **original** recovery and is now the **fallback**: it only acts when the
+runtime hub-reset path above has stood down (`g_runtime_recovery_engaged` is `false`).
+It full-reboots the chip and retries, which the runtime path avoids — so prefer the
+runtime path; this exists for the cases it can't fix.
+
+In `src/main.c` (`recovery_reboot_task`), because even a successful re-enumeration can
+still yield a zombie:
 
 - **Liveness = the packet stream, not mount.** `g_controller_alive` is set in
   `xboxh_packet_received_cb` (the first real packet from the controller), and reset on
@@ -124,12 +190,13 @@ In `src/main.c` (`recovery_reboot_task`), because Layer 1 can still yield a zomb
 
 | situation | behaviour |
 |-----------|-----------|
-| warm reset, controller comes back live | works first try, no reboot |
-| warm reset, controller is a zombie | auto-reboots (≤4) until it's live |
-| controller lost before/during auth | recovers (reboots) |
-| controller unplugged **after** auth | no reboot; adapter keeps running (drums over serial) |
-| no controller plugged at all | comes up without one, no reboot loop |
-| zombie that never thaws in 4 reboots | gives up, waits for a replug |
+| controller comes back live | works first try, no recovery action |
+| controller wedges mid-session (any time) | runtime hub-reset (≤3) brings it back, **no reboot** |
+| warm reset, controller is a zombie | runtime hub-reset (≤3) first; only if that gives up does the watchdog reboot (≤4) take over |
+| controller lost before/during auth | runtime hub-reset; reboot as last resort |
+| controller unplugged **after** auth | runtime path stands down; no reboot; adapter keeps running (drums over serial) |
+| no controller plugged at all | comes up without one, no recovery loop |
+| zombie that never thaws (hub-resets *and* reboots exhausted) | gives up, waits for a replug |
 
 ## A related fix: post-auth controller replug (re-init on re-announce)
 
@@ -166,6 +233,11 @@ and the drop transfers and registers normally. The drop path itself was unchange
 
 ## Validation status
 
+- **Runtime hub-reset validated on hardware** (FreeRTOS SMP port): a controller dropped
+  mid-session — including the hub wedge a debug halt induces by freezing SOF — comes back
+  ~1–3 s later via the RESET# pulse, with a `HOST RECOVERY: controller wedged -> hub
+  reset` line and a clean reconnect on the UART, **no reboot**. See
+  [`FREERTOS-PORT.md`](FREERTOS-PORT.md).
 - **Bench-validated** (no console attached): zombie recovery reliably lands a *live*
   controller — observed `zombie -> watchdog reboot -> heartbeat (CMD_STATUS) flowing`,
   and clean multi-reset batches come up live. The bench keeps recovery permanently
@@ -181,8 +253,9 @@ Reliable, deterministic warm-reset recovery requires **power-cycling the control
 which rev-0.2 hardware cannot do. The hardware fix is a **firmware-controlled
 downstream VBUS FET** (the `PIN_5V_EN` the rev-0.2 board lacks for downstream ports) in
 a board respin. Then a warm reset can drop and restore the controller's power and it
-re-initialises cleanly — no re-reset, no zombie, no reboot dance. Until then, the
-two-layer software workaround above is the ceiling.
+re-initialises cleanly — no hub-reset pulse, no re-reset, no zombie, no reboot dance.
+Until then, the software workaround above (runtime hub-reset, with reboot as last resort)
+is the ceiling.
 
 ## Gotchas learned along the way
 

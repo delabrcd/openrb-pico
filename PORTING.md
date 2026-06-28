@@ -1,5 +1,23 @@
 # Host-stack port to pico-sdk 2.2.0 / TinyUSB 0.18 / Pico-PIO-USB 0.7.2
 
+> **HISTORICAL — predates the FreeRTOS SMP port.** This doc records the earlier
+> dual-core bare-metal *superloop* port. The firmware has since moved to a FreeRTOS
+> SMP task model; **[`docs/FREERTOS-PORT.md`](docs/FREERTOS-PORT.md) is the current
+> architecture and supersedes the architecture described here.** Several specifics
+> below are now false and are flagged inline:
+> - core1 is **no longer** launched via `multicore_launch_core1`/`launch_core1_robust`
+>   — the FreeRTOS SMP scheduler (`vTaskStartScheduler()`) launches it. ROOT CAUSE #1's
+>   early-launch race is now owned by the FreeRTOS port (and its pre-scheduler
+>   `sleep_ms` deadlock is that hazard's new incarnation — FREERTOS-PORT.md lesson #1).
+> - the dual-core **superloop is gone**, replaced by per-concern FreeRTOS tasks.
+> - the operating point is **120 MHz**, not 240 MHz. The 240 MHz overclock that
+>   ROOT CAUSE #2 prescribes was later dropped by upgrading pico_pio_usb to upstream
+>   `main` (see [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md)); the FreeRTOS
+>   port did not touch `set_sys_clock_khz`, which is `120000`.
+>
+> The ROOT CAUSE diagnostics below are kept as historical record — they're still
+> valuable — with notes on how each maps to the current world.
+
 Status: **the Xbox controller now enumerates, mounts, and streams input through
 the CH334R hub on real hardware.** Both prior blockers are fixed. The controller
 reaches `Set Address`, its device descriptor is read, the XBOXH driver claims its
@@ -17,9 +35,16 @@ The dependency bump (pico-sdk 1.5.1→2.2.0, TinyUSB 0.16→0.18, Pico-PIO-USB
 - **The CH334R hub fully enumerates** (device + config descriptors, addr 5, all 4
   ports powered, port-1 reset).
 - **The controller behind the hub enumerates + mounts + streams input** (root
-  cause #2 — see below), reliably at 240 MHz.
+  cause #2 — see below), reliably at 240 MHz. *(Historical: 240 MHz was later
+  dropped; the firmware now runs at 120 MHz — see the top-of-file note.)*
 
 ## ROOT CAUSE #1 — core1 early-launch handshake race (FIXED)
+> **Now owned by the FreeRTOS port.** core1 is no longer launched with
+> `multicore_launch_core1`/`launch_core1_robust`; the FreeRTOS SMP scheduler launches
+> it inside `vTaskStartScheduler()`, so the manual reset+settle dance below no longer
+> exists. The same *early-launch* hazard re-surfaced as a pre-scheduler `sleep_ms`
+> boot deadlock — see FREERTOS-PORT.md lesson #1.
+
 **Symptom:** core1 ran ~25–50 ms after `multicore_launch_core1()` then fell back
 into the bootrom (PC=0x184, bootrom SP). core0 unaffected. Reproduced even with
 core1 reduced to a bare RAM loop and core0 reduced to `set_sys_clock` + launch —
@@ -44,6 +69,12 @@ plus a ~10 ms settle at the top of `core1_main` before `configure_host()`. See
 `launch_core1_robust()`. Verified: core1 no longer dies, SOF runs, hub enumerates.
 
 ## ROOT CAUSE #2 — PIO-USB timing margin through the hub repeater (FIXED)
+> **The 240 MHz fix prescribed here was later superseded.** Upgrading pico_pio_usb to
+> upstream `main` (post-0.7.2 bus-turnaround/handshake timing fixes) made 120 MHz
+> reliable, so the overclock was dropped. The firmware — including after the FreeRTOS
+> port — runs at **120 MHz** (`set_sys_clock_khz(120000, true)`). See
+> [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md) for the resolution.
+
 **Symptom:** after the hub resets its downstream port and `USBH Device Attach`
 fires, the controller's very first `GET_DESCRIPTOR` SETUP (addr 0, behind the hub)
 intermittently got **no handshake at all** — `wait_handshake()` returned 0,

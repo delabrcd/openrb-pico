@@ -2,7 +2,7 @@
  * StaticTask<StackWords> — a tiny C++ wrapper that owns a FreeRTOS task's stack and
  * TCB storage and creates it with a fixed core affinity. It removes the repetitive
  * "declare a StackType_t[] + a StaticTask_t + call xTaskCreateStaticAffinitySet"
- * boilerplate that otherwise multiplies once the superloop is split into many tasks.
+ * boilerplate that otherwise multiplies now that the superloop is split into many tasks.
  *
  * Use one instance per long-lived task (it must outlive the task — give it static
  * storage duration). Stacks + TCBs land in BSS; the type is trivial (no constructor,
