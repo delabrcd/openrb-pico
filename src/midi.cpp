@@ -4,19 +4,25 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
-#include "bsp/board_api.h"
 #include "hardware/gpio.h"
 #include "hardware/timer.h"
 #include "hardware/uart.h"
-#include "instrument_manager.h"
 #include "orb_bsp.h"
 #include "orb_debug.h"
-#include "timers.h"
+#include "software_timer.hpp"
+
+// instrument_manager.h (and the xbox_one_protocol.h it pulls in) is a plain C header
+// with no C-linkage seam of its own; this is the only C++ TU that includes it, so wrap
+// it locally so connect/disconnect_instrument resolve to their C definitions.
+extern "C" {
+#include "instrument_manager.h"
+}
 
 static int count = 0;
 static uint8_t note_on_message[3] = {NoteOn, 0, 0};
-static TimerHandle_t s_disconnect_timer;
-static StaticTimer_t s_disconnect_timer_buf;
+// SoftwareTimer owns the StaticTimer_t control block (BSS, trivial ctor) and the handle,
+// replacing the old raw TimerHandle_t + StaticTimer_t + xTimerCreateStatic plumbing.
+static SoftwareTimer s_disconnect_timer;
 
 static volatile bool drums_connected = false;
 static bool drums_sending_active_sense = false;
@@ -33,12 +39,16 @@ static inline midi_type_e get_type_from_status(uint8_t status) {
 
     if (status < 0xf0)
         // Channel message, remove channel nibble.
-        return status & 0xf0;
+        return (midi_type_e)(status & 0xf0);
 
-    return status;
+    return (midi_type_e)status;
 }
 
-void __not_in_flash_func(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
+// Timer-service-task callback (kernel-called, C-linkage symbol). Stays a free
+// extern "C" function and stays in RAM (__not_in_flash_func) — it finds its state via
+// the file-static drums_connected / out_packet, exactly as before, so the timer id is
+// left null at create().
+extern "C" void __not_in_flash_func(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
     (void)xTimer;
     if (drums_connected) {
         disconnect_instrument(DRUMS, &out_packet);
@@ -46,18 +56,18 @@ void __not_in_flash_func(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
     }
 }
 
-void setup_disconnect_timer() {
-    s_disconnect_timer = xTimerCreateStatic("midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES),
-                                            pdFALSE /*one-shot*/, NULL, on_disconnect_timeout_cb,
-                                            &s_disconnect_timer_buf);
+static void setup_disconnect_timer() {
+    s_disconnect_timer.create("midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES),
+                              false /*one-shot*/, on_disconnect_timeout_cb, nullptr);
 }
 
-void __not_in_flash_func(reset_disconnect_timer)() {
-    // Set the new period and (re)start the one-shot timer. xTimerChangePeriod also
-    // starts/restarts the timer, giving the same "cancel + re-arm" semantics as the
-    // old hardware_alarm code. Block time 0 — don't block in this hot path.
-    xTimerChangePeriod(s_disconnect_timer,
-                       pdMS_TO_TICKS(drums_sending_active_sense ? ONE_SECOND : FIFTEEN_MINUTES), 0);
+static void __not_in_flash_func(reset_disconnect_timer)() {
+    // Set the new period and (re)start the one-shot timer. change_period() wraps
+    // xTimerChangePeriod, which also starts/restarts the timer, giving the same
+    // "cancel + re-arm" semantics as the old hardware_alarm code. Block time 0 —
+    // don't block in this hot path.
+    s_disconnect_timer.change_period(
+        pdMS_TO_TICKS(drums_sending_active_sense ? ONE_SECOND : FIFTEEN_MINUTES), 0);
 }
 
 void serial_midi_init() {
