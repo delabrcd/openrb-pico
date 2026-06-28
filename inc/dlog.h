@@ -3,12 +3,16 @@
 
 #include <stdint.h>
 
+#include "orb_c_api.h"  // ORB_C_BEGIN/END (impl is C++ now; callers are C)
+
 // Deferred logger for debugging the timing-critical PIO-USB host on core1.
-// Each core formats into its OWN lock-free SPSC RAM ring buffer with no
-// UART/mutex/blocking; core0 drains both rings to the debug UART from
+// Each core formats into its OWN lock-free SPSC RAM ring buffer (SpscRing<char,N>) with
+// no UART/mutex/blocking; core0 drains both rings to the debug UART from
 // housekeeping_task. Per-core rings keep each ring single-producer/single-consumer, so both
 // cores can log concurrently without a lock. This avoids starving the core1 USB
 // SOF interrupt the way blocking printf does.
+
+ORB_C_BEGIN
 
 void dlog_init(void);                       // call once on core0 before launching core1
 int dlog_printf(const char *fmt, ...);      // producer (either core) — also CFG_TUSB_DEBUG_PRINTF
@@ -19,5 +23,7 @@ void dlog_drain(void);                       // consumer — call from a core0 t
 // context.
 typedef void (*dlog_sink_t)(const uint8_t *data, uint32_t len);
 void dlog_set_sink(dlog_sink_t sink);
+
+ORB_C_END
 
 #endif  // ORB_DLOG_H_

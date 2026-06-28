@@ -1,25 +1,29 @@
 #include "usb_log.h"
 
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
 
 #include "ff.h"       // must precede diskio.h (provides BYTE/UINT/LBA_t)
 #include "diskio.h"
 #include "hardware/timer.h"
 #include "orb_log.h"
+#include "spsc_ring.hpp"
+// Vendored tusb_types.h trips -Wextra (enum/non-enum ternary) under C++; it was silent
+// while this TU was C. Silence it for the include only -- our own code keeps -Wextra.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wextra"
 #include "tusb.h"
+#pragma GCC diagnostic pop
 
 //--------------------------------------------------------------------+
 // SPSC log ring: core0 producer (usb_log_write), core1 consumer (usb_log_task).
-// Same lock-free discipline as dlog -- aligned 32-bit head/tail loads/stores are
-// atomic on M0+, producer and consumer touch different words.
+// SpscRing<uint8_t,N> (inc/spsc_ring.hpp) -- same lock-free discipline as before:
+// aligned 32-bit head/tail loads/stores are atomic on M0+, producer and consumer
+// touch different words, a full ring drops the rest.
 //--------------------------------------------------------------------+
 #define ULOG_SIZE 32768u  // power of two
-#define ULOG_MASK (ULOG_SIZE - 1u)
 
-static volatile uint8_t ulog_buf[ULOG_SIZE];
-static volatile uint32_t ulog_head;  // producer (core0)
-static volatile uint32_t ulog_tail;  // consumer (core1)
+static orb::SpscRing<uint8_t, ULOG_SIZE> s_ulog;
 
 // ANSI-SGR strip state machine. The dlog ring carries inline color codes meant
 // for the UART sink; LOG.TXT must stay clean. We skip ESC '[' ... <final byte>.
@@ -29,8 +33,11 @@ enum { ANSI_NORMAL = 0, ANSI_ESC, ANSI_CSI };
 static uint8_t s_ansi_state;
 
 void usb_log_write(const uint8_t *data, uint32_t len) {
-    uint32_t h = ulog_head;
-    uint32_t tail = ulog_tail;
+    // Strip ANSI, accumulating kept bytes and pushing them to the ring in batches so a
+    // typical call is still a single batch write (one head store). The strip semantics
+    // are identical to the previous inline version.
+    uint8_t out[128];
+    uint32_t k = 0;
     for (uint32_t i = 0; i < len; i++) {
         uint8_t c = data[i];
         switch (s_ansi_state) {
@@ -45,12 +52,13 @@ void usb_log_write(const uint8_t *data, uint32_t len) {
                 if (c == 0x1b) { s_ansi_state = ANSI_ESC; continue; }
                 break;
         }
-        uint32_t nh = (h + 1u) & ULOG_MASK;
-        if (nh == tail) break;  // ring full -> drop the rest
-        ulog_buf[h] = c;
-        h = nh;
+        out[k++] = c;
+        if (k == sizeof(out)) {
+            s_ulog.write(out, k);
+            k = 0;
+        }
     }
-    ulog_head = h;
+    if (k) s_ulog.write(out, k);
 }
 
 //--------------------------------------------------------------------+
@@ -104,19 +112,17 @@ void usb_log_task(void) {
         s_last_sync_us = timer_hw->timerawl;
     }
 
-    // Drain whatever is buffered (one chunk per call; the loop comes back next tick).
-    uint32_t tail = ulog_tail;
-    uint32_t head = ulog_head;
-    if (tail != head) {
-        uint32_t n = 0;
-        while (tail != head && n < sizeof(s_chunk)) {
-            s_chunk[n++] = ulog_buf[tail];
-            tail = (tail + 1u) & ULOG_MASK;
-        }
+    // Drain one contiguous run (up to s_chunk) per call; the loop comes back next tick.
+    // readable() stops at the buffer wrap, so a run straddling the wrap is split across
+    // two ticks -- fine, the consumer is explicitly one-chunk-per-call.
+    auto run = s_ulog.readable();
+    if (run.len) {
+        uint32_t n = run.len < sizeof(s_chunk) ? run.len : (uint32_t)sizeof(s_chunk);
+        for (uint32_t i = 0; i < n; i++) s_chunk[i] = run.ptr[i];
         UINT wr = 0;
         FRESULT fr = f_write(&s_file, s_chunk, n, &wr);
         if (fr == FR_OK && wr == n) {
-            ulog_tail = tail;  // commit consumption only on full success
+            s_ulog.consume(n);  // commit consumption only on full success
         } else {
             LOG_ERR(CAT_USBLOG, "f_write err fr=%d wr=%lu/%lu", fr, (unsigned long)wr,
                     (unsigned long)n);

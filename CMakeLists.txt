@@ -76,9 +76,9 @@ set(SOURCES
     src/app_queues.cpp
     src/app_tasks.cpp
     src/freertos_hooks.c
-    src/dlog.c
+    src/dlog.cpp
     src/orb_log.c
-    src/usb_log.c
+    src/usb_log.cpp
     ${FATFS_DIR}/ff.c
     ${FATFS_DIR}/ffsystem.c
     ${FATFS_DIR}/ffunicode.c
