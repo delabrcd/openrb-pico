@@ -49,7 +49,15 @@
 // now lives behind the adapter_ctx module -- see inc/adapter_ctx.h for the concurrency
 // rationale (packed controller word, lock-free volatiles).
 
+// Device-side scratch packet: built by the core0 device-RX handlers (auth / identify /
+// running / announce) before being copied into the cross-core TX fifo. core0 ONLY.
 static xbox_packet_t out_packet;
+
+// Host-side scratch packet for the core1 controller-input path (handle_controller_packet_
+// running). core1 ONLY -- kept separate from out_packet so a core0 device-RX handler building
+// out_packet cannot tear a controller-input packet being built concurrently on core1 (both
+// are full-width rebuilt-then-enqueued; only the fifo copy is mutex-protected, not the build).
+static xbox_packet_t host_out_packet;
 
 // ---- Runtime (non-reboot) host recovery, core1 ---------------------------------
 // Liveness of the tracked controller, sampled on core1 only (mount_cb /
@@ -152,8 +160,8 @@ void handle_controller_packet_running(const xbox_packet_t *data) {
             break;
 
         case CMD_INPUT:
-            fill_drum_input_from_controller(data, &out_packet, DRUMS);
-            xbox_fifo_write(&out_packet);
+            fill_drum_input_from_controller(data, &host_out_packet, DRUMS);
+            xbox_fifo_write(&host_out_packet);
             break;
         default:
             break;

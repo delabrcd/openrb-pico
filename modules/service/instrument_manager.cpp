@@ -5,18 +5,25 @@
  * as adapter_ctx.cpp: a C++ object owns the state/logic, thin free functions forward into
  * the single instance.
  *
- * Concurrency: every entry point (connect/disconnect from the core0 instrument-input task
- * and the core0 timer-service disconnect callback; notify_* from the core0 device stack)
- * runs on core0 -- see FreeRTOSConfig.h (timer daemon pinned core0) and main.c. The
- * connected_ flags were `volatile uint8_t` before; they become std::atomic<bool> with
- * memory_order_relaxed, which on M0+ emits the same plain ldrb/strb (no barrier) and so
- * reproduces the prior volatile semantics exactly. We use ONLY load()/store() -- never an
- * atomic read-modify-write: M0+ has no LDREX/STREX so fetch_add or exchange would emit an
- * interrupt-masking libcall. connect_instrument's check-then-set therefore stays a load
- * then a store, byte-for-byte the original `if (flag) return; flag = 1;` -- not an atomic
- * RMW, which is correct because all mutators are core0 tasks (the original volatile was
- * equally non-atomic across preemption). std::atomic<bool> has a constexpr constructor, so
- * the static instance is constant-initialised -> BSS, no global ctor.
+ * Concurrency: connect/disconnect run on BOTH cores -- DRUMS connects/disconnects from core1
+ * (the USB-MIDI mount/umount callbacks in drums.cpp, which run inside the core1 host task)
+ * AND from core0 (serial-MIDI in midi.cpp + the timer-daemon disconnect, both core0); the
+ * guitars connect/disconnect from core1 only. notify_* run on core0 (the device stack). So
+ * connected_[DRUMS] is a genuinely cross-core flag. (The original C globals were `volatile
+ * uint8_t` with the same cross-core callers -- the non-atomic check-then-set was a latent
+ * race there too; this is the corrected version, not a regression.)
+ *
+ * The flags are std::atomic<bool>, relaxed load/store only (M0+ has no LDREX/STREX, so an
+ * atomic RMW would emit an interrupt-masking libcall) -- which gives tear-free single reads
+ * for the lock-free notify_* readers on core0. But a relaxed load THEN a relaxed store is
+ * not atomic as a pair: two cores could both pass the "not connected" check and both
+ * publish a connect. So connect()/disconnect() wrap ONLY the check-then-set of the flag in
+ * an orb::osal::ScopedCritical (FreeRTOS SMP critical section -> spinlock + IRQ mask = true
+ * cross-core mutual exclusion). The guarded body is two instructions; the build+FIFO-write
+ * stays OUTSIDE the lock (each caller owns its scratch, and xbox_fifo_write is already
+ * mutex-safe), so core1 is held off only at rare mount/umount events, never the stream path.
+ * std::atomic<bool> has a constexpr constructor, so the static instance is constant-
+ * initialised -> BSS, no global ctor.
  */
 #include <pico.h>
 
@@ -38,6 +45,7 @@
 // xbox_fifo_write, the connect/disconnect/notify API) are plain C++ free functions
 // defined in C++ TUs, so include them normally.
 #include "instrument_manager.h"
+#include "osal/critical.hpp"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
 
@@ -105,9 +113,8 @@ class InstrumentManager {
     }
 
     void connect(instruments_e instrument, xbox_packet_t *scratch) {
-        if (connected_[idx(instrument)].load(kRlx)) return;  // check ...
+        if (!claim(instrument, /*want=*/true)) return;  // atomic not-connected -> connected
         LOG_INFO(CAT_DEV, "%s connected!", instrument_name(instrument));
-        connected_[idx(instrument)].store(true, kRlx);  // ... then set (not an atomic RMW)
 
         if (orb::service::adapter().state() != STATE_RUNNING) return;
 
@@ -116,9 +123,8 @@ class InstrumentManager {
     }
 
     void disconnect(instruments_e instrument, xbox_packet_t *scratch) {
-        if (!connected_[idx(instrument)].load(kRlx)) return;
+        if (!claim(instrument, /*want=*/false)) return;  // atomic connected -> not-connected
         LOG_INFO(CAT_DEV, "%s disconnected!", instrument_name(instrument));
-        connected_[idx(instrument)].store(false, kRlx);
 
         if (orb::service::adapter().state() != STATE_RUNNING) return;
 
@@ -130,6 +136,17 @@ class InstrumentManager {
     static constexpr std::memory_order kRlx = std::memory_order_relaxed;
     static constexpr std::array<instruments_e, kInstrumentCount> kAllInstruments{
         GUITAR_ONE, GUITAR_TWO, DRUMS};
+
+    // Atomically transition connected_[instrument] to `want`, returning true iff THIS call
+    // performed the transition (i.e. the flag was not already `want`). The load+store pair is
+    // guarded by a cross-core critical section so two cores can't both win the same
+    // transition (a relaxed load-then-store is not atomic as a pair on M0+).
+    bool claim(instruments_e instrument, bool want) {
+        orb::osal::ScopedCritical guard;
+        if (connected_[idx(instrument)].load(kRlx) == want) return false;
+        connected_[idx(instrument)].store(want, kRlx);
+        return true;
+    }
 
     // Copy an instrument's full wire row into the scratch packet and stamp its length.
     static void build_packet(xbox_packet_t *pkt, instruments_e instrument, bool connect) {
