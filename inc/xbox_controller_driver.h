@@ -11,7 +11,16 @@
 #include "common/tusb_types.h"
 // clang-format on
 
+#include "orb_c_api.h"
 #include "xbox_one_protocol.h"
+
+// Transitional C/C++ seam (see orb_c_api.h): the TinyUSB host class callbacks
+// (xboxh_open/set_config/xfer_cb/close/init) are the vendor seam, and main.cpp calls
+// xboxh_send_report / xboxh_reinit_controller / xboxh_in_error_streak /
+// xboxh_clear_error_streak / the weak xboxh_*_cb hooks across the boundary. Wrapping the
+// declarations in extern "C" keeps every one of these symbols C-linkage from both the
+// .cpp definition and its callers.
+ORB_C_BEGIN
 
 bool xboxh_receive_report(uint8_t daddr, uint8_t idx);
 bool xboxh_send_report(uint8_t daddr, uint8_t idx, const void *report, uint16_t len);
@@ -42,5 +51,7 @@ void xboxh_power_on_controllers();
 void xboxh_power_off_controllers();
 
 void xboxh_reset_controllers();
+
+ORB_C_END
 
 #endif  // XBOX_CONTROLLER_DRIVER_H

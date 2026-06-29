@@ -7,48 +7,69 @@
 
 #if (CFG_TUD_ENABLED && CFG_TUD_XINPUT)
 
+#include <array>
+#include <cstdint>
+
 #include "class/hid/hid.h"
 #include "common/tusb_common.h"
 #include "common/tusb_types.h"
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
-#include "packet_queue.h"
 #include "xbox_device_driver.h"
+
+// packet_queue.h (xbox_fifo_read et al.) is a plain C header with no C-linkage seam of its
+// own; wrap it so its symbols resolve to their C definitions. xbox_one_protocol.h is already
+// seamed (ORB_C_BEGIN) so it is included normally above.
+extern "C" {
+#include "packet_queue.h"
+}
 
 // only need a fifo for sent packets
 #define XBOXD_N_BUF 15
 #define XBOXD_TX_FIFO_SIZE CFG_TUD_XINPUT_TX_BUFSIZE *XBOXD_N_BUF
 
-typedef struct {
+namespace {
+
+struct xinputd_interface_t {
     uint8_t itf_num;
     uint8_t ep_in;
     uint8_t ep_out;
 
     CFG_TUSB_MEM_ALIGN xbox_packet_t epin_buf;
     CFG_TUSB_MEM_ALIGN xbox_packet_t epout_buf;
-} xinputd_interface_t;
+};
 
-CFG_TUSB_MEM_SECTION static xinputd_interface_t _xinputd_itf[CFG_TUD_XINPUT];
+CFG_TUSB_MEM_SECTION std::array<xinputd_interface_t, CFG_TUD_XINPUT> _xinputd_itf;
 
-static xinputd_interface_t *find_new_itf(void) {
-    for (uint8_t i = 0; i < CFG_TUD_XINPUT; i++) {
-        if (_xinputd_itf[i].ep_in == 0 && _xinputd_itf[i].ep_out == 0) return &_xinputd_itf[i];
+xinputd_interface_t *find_new_itf() {
+    for (auto &itf : _xinputd_itf) {
+        if (itf.ep_in == 0 && itf.ep_out == 0) return &itf;
     }
 
-    return NULL;
+    return nullptr;
 }
 
-bool tud_xinput_n_ready(uint8_t itf) {
-    uint8_t const ep_in = _xinputd_itf[itf].ep_in;
-    return tud_ready() && (ep_in != 0) && !usbd_edpt_busy(TUD_OPT_RHPORT, ep_in);
-}
-
-static bool _xboxd_send(uint8_t itf, uint8_t *report, uint8_t len) {
+bool _xboxd_send(uint8_t itf, uint8_t *report, uint8_t len) {
     xinputd_interface_t *p_xinput = &_xinputd_itf[itf];
 
     len = tu_min8(len, CFG_TUD_XINPUT_TX_BUFSIZE);
 
     return usbd_edpt_xfer(TUD_OPT_RHPORT, p_xinput->ep_in, report, len);
+}
+
+// special! gip device request - pulled from GIMX firmewares for xbone
+uint8_t request0x90_index_0x04[] = {
+        0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x58, 0x47, 0x49, 0x50, 0x31, 0x30, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+}  // namespace
+
+extern "C" {
+
+bool tud_xinput_n_ready(uint8_t itf) {
+    uint8_t const ep_in = _xinputd_itf[itf].ep_in;
+    return tud_ready() && (ep_in != 0) && !usbd_edpt_busy(TUD_OPT_RHPORT, ep_in);
 }
 
 bool xboxd_send(xbox_packet_t *packet) {
@@ -81,7 +102,7 @@ bool xboxd_send_task() {
 // USBD-CLASS API
 //--------------------------------------------------------------------+
 void xboxd_init(void) {
-    tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
+    tu_memclr(_xinputd_itf.data(), sizeof(_xinputd_itf));
     _xinputd_itf[0].epin_buf.handled = 1;
 }
 
@@ -91,7 +112,7 @@ void xboxd_init(void) {
 void xboxd_reset(uint8_t rhport) {
     LOG_INFO(CAT_DEV, "Resetting Device");
     (void)rhport;
-    tu_memclr(_xinputd_itf, sizeof(_xinputd_itf));
+    tu_memclr(_xinputd_itf.data(), sizeof(_xinputd_itf));
     _xinputd_itf[0].epin_buf.handled = 1;
 
     if (xboxd_on_reset_cb) xboxd_on_reset_cb();
@@ -109,14 +130,14 @@ uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint1
     // first one so lets hope and pray we never need to use these
     if (itf_desc->bInterfaceSubClass != 0x47) {
         uint16_t drv_len = itf_desc->bLength;
-        uint8_t const *p_desc = (uint8_t const *)itf_desc;
+        uint8_t const *p_desc = reinterpret_cast<uint8_t const *>(itf_desc);
         p_desc = tu_desc_next(p_desc);
 
         // support more than one interface of the same number
-        tusb_desc_interface_t const *itf = (tusb_desc_interface_t *)p_desc;
+        tusb_desc_interface_t const *itf = reinterpret_cast<tusb_desc_interface_t const *>(p_desc);
         while (tu_desc_type(p_desc) == TUSB_DESC_INTERFACE &&
                itf->bInterfaceNumber == itf_desc->bInterfaceNumber) {
-            itf = (tusb_desc_interface_t const *)p_desc;
+            itf = reinterpret_cast<tusb_desc_interface_t const *>(p_desc);
             drv_len += itf->bLength;
             p_desc = tu_desc_next(p_desc);
             TU_ASSERT(p_desc);
@@ -125,7 +146,7 @@ uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint1
         // the final interface should be where the endpoints are
         tusb_desc_endpoint_t const *desc_ep;
         for (int i = 0; i < itf->bNumEndpoints; i++) {
-            desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+            desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
             TU_ASSERT(TUSB_DESC_ENDPOINT == desc_ep->bDescriptorType);
             drv_len += desc_ep->bLength;
             p_desc = tu_desc_next(p_desc);
@@ -148,10 +169,10 @@ uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint1
 
     p_xinput->itf_num = itf_desc->bInterfaceNumber;
 
-    uint8_t const *p_desc = (uint8_t const *)itf_desc;
+    uint8_t const *p_desc = reinterpret_cast<uint8_t const *>(itf_desc);
     p_desc = tu_desc_next(p_desc);
     TU_ASSERT(tu_desc_type(p_desc) == TUSB_DESC_ENDPOINT);
-    tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+    tusb_desc_endpoint_t const *desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
 
     for (int i = 0; i < itf_desc->bNumEndpoints; i++) {
         TU_ASSERT(TUSB_DESC_ENDPOINT == desc_ep->bDescriptorType);
@@ -166,18 +187,12 @@ uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint1
             p_xinput->ep_out = desc_ep->bEndpointAddress;
         }
         p_desc = tu_desc_next(p_desc);
-        desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+        desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
     }
     TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.buffer,
                              sizeof(p_xinput->epout_buf)));
     return drv_len;
 }
-
-// special! gip device request - pulled from GIMX firmewares for xbone
-static uint8_t request0x90_index_0x04[] = {
-        0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x58, 0x47, 0x49, 0x50, 0x31, 0x30, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 bool xboxd_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request) {
     if (stage != CONTROL_STAGE_SETUP) return true;
@@ -227,14 +242,16 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
     (void)result;
     (void)xferred_bytes;
-    uint8_t itf = 0;
-    xinputd_interface_t *p_xinput = _xinputd_itf;
+    xinputd_interface_t *p_xinput = nullptr;
 
-    for (;; itf++, p_xinput++) {
-        if (itf >= TU_ARRAY_SIZE(_xinputd_itf)) return false;
-
-        if (ep_addr == p_xinput->ep_out || ep_addr == p_xinput->ep_in) break;
+    for (auto &itf : _xinputd_itf) {
+        if (ep_addr == itf.ep_out || ep_addr == itf.ep_in) {
+            p_xinput = &itf;
+            break;
+        }
     }
+
+    if (p_xinput == nullptr) return false;
 
     if (ep_addr == p_xinput->ep_out) {
         LOG_TRC(CAT_DEV, "IN (%s)", get_command_name(p_xinput->epout_buf.frame.command));
@@ -254,19 +271,25 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
     return true;
 }
 
+}  // extern "C"
+
 static usbd_class_driver_t const _xboxd_driver = {
 #if CFG_TUSB_DEBUG >= 2
         .name = "XBOXD",
+#else
+        .name = nullptr,
 #endif
         .init = xboxd_init,
+        .deinit = nullptr,
         .reset = xboxd_reset,
         .open = xboxd_open,
         .control_xfer_cb = xboxd_control_xfer_cb,
         .xfer_cb = xboxd_xfer_cb,
-        .sof = NULL};
+        .xfer_isr = nullptr,
+        .sof = nullptr};
 
 // Implement callback to add our custom driver
-usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count) {
+extern "C" usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count) {
     *driver_count = 1;
     return &_xboxd_driver;
 }

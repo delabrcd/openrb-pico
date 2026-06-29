@@ -1,64 +1,83 @@
+/*
+ * GIP (Xbox One) packet construction / parsing for the emulated wireless legacy adapter,
+ * as modern C++ behind the unchanged extern "C" API its still-C drivers
+ * (xbox_controller_driver.c / xbox_device_driver.c) call. The public functions keep their
+ * C linkage via the ORB_C_BEGIN seam in xbox_one_protocol.h; only the internals are
+ * modernised. The wire structs (frame_t, xbox_packet_t, the input packets) stay the
+ * unchanged packed/standard-layout aggregates declared in the header.
+ *
+ * CRITICAL: every emitted/parsed byte is identical to the original C -- this builds the
+ * drum/guitar input packets and parses controller input.
+ */
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <span>
+
 #include "bsp/board_api.h"
-// #include "xinput_host.h"
-
-#include <string.h>
-
 #include "orb_debug.h"
 #include "xbox_one_protocol.h"
 
-static uint8_t sequence = 0;
+namespace {
 
-uint8_t get_sequence() { return sequence++; }
+// GIP frame sequence counter -- post-increment wraps at 256, byte-for-byte the original
+// `static uint8_t sequence` + `sequence++`. constinit -> BSS, no global ctor.
+constinit std::uint8_t g_sequence = 0;
 
-uint8_t xboxp_get_size(const xbox_packet_t *packet) {
+// Guitar HID input report as it arrives on the wire (PDP/legacy guitar). Internal to this
+// TU; standard-layout packed so a byte-wise copy reconstructs it from the raw report.
+struct hid_input_report_t {
+    std::uint8_t cmd_id : 8;  // 00
+
+    // 00
+    std::uint8_t green : 1;   // Green button (bit 0)
+    std::uint8_t red : 1;     // Red button (bit 1)
+    std::uint8_t yellow : 1;  // Yellow button (bit 2)
+    std::uint8_t blue : 1;    // Blue button (bit 3)
+    std::uint8_t orange : 1;  // Orange button (bit 4)
+    std::uint8_t unknown : 1;
+    std::uint8_t select : 1;  // Select button (bit 7)
+    std::uint8_t start : 1;   // Start button (bit 8)
+
+    // 00
+    std::uint8_t dpad_maybe : 8;
+
+    // 00
+    // strum up -       00
+    // strum down -     04
+    // strum center -   08
+    std::uint8_t strum_bits : 8;
+
+    std::uint8_t whammy_bits : 8;
+    std::uint8_t dunno1 : 8;
+    std::uint8_t tilt_bits : 8;
+} __attribute__((packed));
+
+// 4-bit colored-button state packed from the guitar HID fret bits -- identical shifts to
+// the original MAKE_COLORED_STATE macro.
+constexpr std::uint8_t make_colored_state(const hid_input_report_t &r) {
+    return (r.blue << 2) | (r.green << 0) | (r.red << 1) | (r.yellow << 3);
+}
+
+}  // namespace
+
+std::uint8_t get_sequence() { return g_sequence++; }
+
+std::uint8_t xboxp_get_size(const xbox_packet_t *packet) {
     if (!packet) return 0;
     return packet->length;
 }
 
-void init_packet(xbox_packet_t *pkt, uint32_t time, uint8_t length) {
+void init_packet(xbox_packet_t *pkt, std::uint32_t time, std::uint8_t length) {
     pkt->frame.sequence = get_sequence();
     pkt->triggered_time = time;
     pkt->handled = 0;
     pkt->length = length;
 }
 
-typedef struct hid_input_report_t {
-    uint8_t cmd_id : 8;  // 00
-
-    // 00
-    uint8_t green : 1;   // Green button (bit 0)
-    uint8_t red : 1;     // Red button (bit 1)
-    uint8_t yellow : 1;  // Yellow button (bit 2)
-    uint8_t blue : 1;    // Blue button (bit 3)
-    uint8_t orange : 1;  // Orange button (bit 4)
-    uint8_t unknown : 1;
-    uint8_t select : 1;  // Select button (bit 7)
-    uint8_t start : 1;   // Start button (bit 8)
-
-    // 00
-    uint8_t dpad_maybe : 8;
-
-    // 00
-    // strum up -       00
-    // strum down -     04
-    // strum center -   08
-    uint8_t strum_bits : 8;
-
-    uint8_t whammy_bits : 8;
-    uint8_t dunno1 : 8;
-    uint8_t tilt_bits : 8;
-} __attribute__((packed)) hid_input_report_t;
-
-// static void fill_wla_header()
-#define MAKE_COLORED_STATE(report) \
-    ((report->blue << 2) | (report->green << 0) | (report->red << 1) | (report->yellow << 3));
-
-#define MAKE_DPAD_STATE(report)        \
-    (report->strum_bits == 0x08 ? 0x00 \
-                                : (report->strum_bits & 0x04 << 1) | (report->strum_bits & 0x0))
-
-void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla_output,
-                                       uint8_t player_id) {
+void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t *wla_output,
+                                       std::uint8_t player_id) {
     init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
 
     wla_output->frame.command = CMD_INPUT;
@@ -68,44 +87,32 @@ void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla
     wla_output->wla_header.playerId = player_id;
 
     xb_one_guitar_input_pkt_t *guitar_pkt = &wla_output->guitar_input;
-    const hid_input_report_t *hid_report = (const hid_input_report_t *)report;
 
-    guitar_pkt->wla_header.coloredButtonState1 = MAKE_COLORED_STATE(hid_report);
+    // Reconstruct the typed HID report from the raw bytes via a byte-wise copy -- avoids the
+    // strict-aliasing UB of the original `(const hid_input_report_t *)report` cast.
+    hid_input_report_t hid_report{};
+    std::memcpy(&hid_report, report, sizeof(hid_report));
+
+    guitar_pkt->wla_header.coloredButtonState1 = make_colored_state(hid_report);
     guitar_pkt->coloredButtonState2 = guitar_pkt->wla_header.coloredButtonState1;
-    guitar_pkt->orangeButton = hid_report->orange;
-    guitar_pkt->startButton = hid_report->start;
-    guitar_pkt->selectButton = hid_report->select | (hid_report->tilt_bits > 128);
-    guitar_pkt->whammy = hid_report->whammy_bits;
+    guitar_pkt->orangeButton = hid_report.orange;
+    guitar_pkt->startButton = hid_report.start;
+    guitar_pkt->selectButton = hid_report.select | (hid_report.tilt_bits > 128);
+    guitar_pkt->whammy = hid_report.whammy_bits;
 
-    if (hid_report->strum_bits == 0x00) {
+    if (hid_report.strum_bits == 0x00) {
         guitar_pkt->dpadState2 = (1 << 0);
-    } else if (hid_report->strum_bits & 0x04) {
+    } else if (hid_report.strum_bits & 0x04) {
         guitar_pkt->dpadState2 = (1 << 1);
-    } else if (hid_report->strum_bits & 0x08) {
+    } else if (hid_report.strum_bits & 0x08) {
         guitar_pkt->dpadState2 = 0;
     }
     guitar_pkt->wla_header.dpadState1 = guitar_pkt->dpadState2;
-    return;
 }
-#if 0
-void fill_guitar_input_from_xinput(const xinput_gamepad_t *guitar_in, xbox_packet_t *wla_output,
-                                   uint8_t player_id) {
-    init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
-    wla_output->frame.command = CMD_INPUT;
-    wla_output->frame.device_id = 0;
-    wla_output->frame.type = 0;
-    wla_output->frame.length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
-    wla_output->wla_header.playerId = player_id;
 
-    xb_one_guitar_input_pkt_t *guitar_out = &wla_output->guitar_input;
-
-    guitar_out->coloredButtonState2 = guitar_in->wButtons; 
-
-}
-#endif
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
-                                     xbox_packet_t *wla_output, uint8_t player_id) {
-    memset(wla_output->buffer, 0, sizeof(wla_output->buffer));
+                                     xbox_packet_t *wla_output, std::uint8_t player_id) {
+    std::ranges::fill(std::span{wla_output->buffer}, std::uint8_t{0});
 
     wla_output->handled = 0;
     wla_output->triggered_time = 0;
@@ -132,7 +139,6 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
 
     wla_output->wla_header.start = controller_input->controller_input.buttons.start;
     wla_output->drum_input.start = controller_input->controller_input.buttons.start;
-    return;
 }
 
 #if OPENRB_DEBUG_ENABLED
@@ -175,6 +181,5 @@ const char *get_command_name(int cmd) {
         default:
             return "Unknown CMD";
     }
-    return "Unknown CMD";
 }
 #endif

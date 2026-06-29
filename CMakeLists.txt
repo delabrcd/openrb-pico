@@ -84,12 +84,12 @@ set(SOURCES
     ${FATFS_DIR}/ffsystem.c
     ${FATFS_DIR}/ffunicode.c
     src/drums.cpp
-    src/packet_queue.c
+    src/packet_queue.cpp
     src/host_drivers.cpp
     src/usb_descriptors.cpp
-    src/xbox_controller_driver.c
-    src/xbox_device_driver.c
-    src/xbox_one_protocol.c
+    src/xbox_controller_driver.cpp
+    src/xbox_device_driver.cpp
+    src/xbox_one_protocol.cpp
     src/wla_identifiers.cpp
     src/instrument_manager.cpp
     src/midi.cpp

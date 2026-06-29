@@ -1,6 +1,25 @@
+/*
+ * TinyUSB host class driver for the Xbox One controller, enumerated over the CH334R hub on
+ * the bit-banged Pico-PIO-USB core (core1). Modern-C++ internals; the wire protocol, the
+ * enumeration sequence, the claim->usbh_edpt_xfer->release dance (with release on every
+ * error path), the IN-error-streak recovery signal and the non-blocking tuh_task_ext(0,
+ * false) TX pumps are preserved byte-for-byte and timing-for-timing -- a change here breaks
+ * enumeration on the PIO-USB core (see docs/FREERTOS-PORT.md core1 rules).
+ *
+ * C seam: the TinyUSB host callbacks (xboxh_init/open/set_config/xfer_cb/close) are the
+ * vendor seam, registered as C function pointers in host_drivers.cpp; the weak
+ * xboxh_*_cb hooks and the xboxh_send_report / xboxh_reinit_controller /
+ * xboxh_in_error_streak / xboxh_clear_error_streak entry points are called from main.cpp.
+ * All of those keep C linkage via the ORB_C_BEGIN seam in the header. Only the file-local
+ * helpers and state move into an anonymous namespace.
+ */
 #include "xbox_controller_driver.h"
 
-#include <stdbool.h>
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <cstring>
+#include <ranges>
 
 #include "common/tusb_verify.h"
 #include "host/usbh.h"
@@ -25,7 +44,9 @@
 #define XBOX_MAX_CONTROLLERS 1
 #define XBOX_ONE_MAX_ENDPOINTS 2
 
-typedef struct {
+namespace {
+
+struct xbox_interface_t {
     uint8_t daddr;
 
     uint8_t itf_num;
@@ -43,49 +64,47 @@ typedef struct {
 
     CFG_TUH_MEM_ALIGN xbox_packet_t epin_buf;
     CFG_TUH_MEM_ALIGN xbox_packet_t epout_buf;
-} xbox_interface_t;
+};
 
 CFG_TUH_MEM_SECTION
-tu_static xbox_interface_t _xbox_itf[XBOX_MAX_CONTROLLERS];
+tu_static std::array<xbox_interface_t, XBOX_MAX_CONTROLLERS> _xbox_itf;
 
-static xbox_interface_t *find_new_itf(void) {
-    for (uint8_t i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
-        if (_xbox_itf[i].daddr == 0) return &_xbox_itf[i];
+xbox_interface_t *find_new_itf(void) {
+    for (auto &itf : _xbox_itf) {
+        if (itf.daddr == 0) return &itf;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 TU_ATTR_ALWAYS_INLINE static inline xbox_interface_t *get_xbox_itf(uint8_t daddr, uint8_t idx) {
-    TU_ASSERT(daddr > 0 && idx < XBOX_MAX_CONTROLLERS, NULL);
+    TU_ASSERT(daddr > 0 && idx < XBOX_MAX_CONTROLLERS, nullptr);
     xbox_interface_t *p_hid = &_xbox_itf[idx];
-    return (p_hid->daddr == daddr) ? p_hid : NULL;
+    return (p_hid->daddr == daddr) ? p_hid : nullptr;
 }
 
-static uint8_t get_idx_by_epaddr(uint8_t daddr, uint8_t ep_addr) {
-    for (uint8_t idx = 0; idx < XBOX_MAX_CONTROLLERS; idx++) {
-        xbox_interface_t const *p_hid = &_xbox_itf[idx];
+uint8_t get_idx_by_epaddr(uint8_t daddr, uint8_t ep_addr) {
+    auto const it = std::ranges::find_if(_xbox_itf, [&](xbox_interface_t const &p_hid) {
+        return p_hid.daddr == daddr && (p_hid.ep_in == ep_addr || p_hid.ep_out == ep_addr);
+    });
 
-        if (p_hid->daddr == daddr && (p_hid->ep_in == ep_addr || p_hid->ep_out == ep_addr)) {
-            return idx;
-        }
-    }
+    if (it == _xbox_itf.end()) return TUSB_INDEX_INVALID_8;
 
-    return TUSB_INDEX_INVALID_8;
+    return static_cast<uint8_t>(std::ranges::distance(_xbox_itf.begin(), it));
 }
 
 uint8_t xbox_itf_get_index(uint8_t daddr, uint8_t itf_num) {
-    for (uint8_t idx = 0; idx < XBOX_MAX_CONTROLLERS; idx++) {
-        xbox_interface_t const *p_hid = &_xbox_itf[idx];
+    auto const it = std::ranges::find_if(_xbox_itf, [&](xbox_interface_t const &p_hid) {
+        return p_hid.daddr == daddr && p_hid.itf_num == itf_num;
+    });
 
-        if (p_hid->daddr == daddr && p_hid->itf_num == itf_num) return idx;
-    }
+    if (it == _xbox_itf.end()) return TUSB_INDEX_INVALID_8;
 
-    return TUSB_INDEX_INVALID_8;
+    return static_cast<uint8_t>(std::ranges::distance(_xbox_itf.begin(), it));
 }
 
 #if CFG_TUSB_DEBUG
-static bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr) {
+bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr) {
     TU_LOG3("bLength: %d\r\n", desc_itf->bLength);
     TU_LOG3("bDescriptorType: %d\r\n", desc_itf->bDescriptorType);
     TU_LOG3("bInterfaceNumber: %d\r\n", desc_itf->bInterfaceNumber);
@@ -95,9 +114,9 @@ static bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr
     TU_LOG3("bInterfaceProtocol: %d\r\n", desc_itf->bInterfaceProtocol);
     TU_LOG3("iInterface: %d\r\n", desc_itf->iInterface);
 
-    uint8_t const *p_desc = (uint8_t const *)desc_itf;
+    uint8_t const *p_desc = reinterpret_cast<uint8_t const *>(desc_itf);
     p_desc = tu_desc_next(p_desc);
-    tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+    tusb_desc_endpoint_t const *desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
 
     for (int i = 0; i < desc_itf->bNumEndpoints; i++) {
         TU_ASSERT(TUSB_DESC_ENDPOINT == desc_ep->bDescriptorType);
@@ -114,13 +133,13 @@ static bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr
         TU_LOG3("\tbInterval: %d\r\n", desc_ep->bInterval);
 
         p_desc = tu_desc_next(p_desc);
-        desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+        desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
     }
     return true;
 }
 #endif
 
-static bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
+bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
     switch (vid) {
         case XBOX_VID1:
             switch (pid) {
@@ -141,11 +160,102 @@ static bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
     return false;
 }
 
-static void wait_for_tx_complete(uint8_t dev_addr, uint8_t ep_out) {
+void wait_for_tx_complete(uint8_t dev_addr, uint8_t ep_out) {
     // Non-blocking pump (see usb_log.c wait_for_disk_io): under OPT_OS_FREERTOS a plain
     // tuh_task() would block on the host event queue instead of spinning the TX out.
     while (usbh_edpt_busy(dev_addr, ep_out)) tuh_task_ext(0, false);
 }
+
+bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
+    if (p_itf->daddr == 0) return false;
+    if (!p_itf->is_powered) return false;
+
+    power_report_t out = make_power_report(get_sequence(), 0x05);
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.data = POWER_OFF;
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.data = POWER_SLEEP;
+    out.data.frame.sequence = get_sequence();
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+    p_itf->is_powered = false;
+    return true;
+}
+
+constexpr std::array<uint8_t, 5> xboxone_s_init{0x05, 0x20, 0x00, 0x0f, 0x06};
+
+// CDD NOTE the controllers I've tested with don't have a way to turn them back on once we've turned
+// them off. Otherwise you have to press the guide button to wake them up - this behavior is
+// consistent even if I plug them straight into the xbox
+bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
+    if (p_itf->daddr == 0) return false;
+    if (p_itf->is_powered) return false;
+    const power_report_t power_on = make_power_report(0, POWER_ON);
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    if ((p_itf->PID == XBOX_ONE_PID4 || p_itf->PID == 0x0b00 || p_itf->PID == XBOX_ONE_PID14)) {
+        TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, xboxone_s_init.data(), sizeof(xboxone_s_init)));
+        wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+    }
+
+    led_mode_command_t out = make_led_mode_command(get_sequence(), LED_ON, 0x14);
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    p_itf->is_powered = true;
+    return true;
+}
+
+bool xboxh_reset_controller(xbox_interface_t *p_itf) {
+    xboxh_power_off_controller(p_itf);
+
+    power_report_t out = make_power_report(get_sequence(), 0x07);
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    out.data.frame.sequence = get_sequence();
+    out.data.data = 0x00;
+
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
+    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
+
+    TU_ASSERT(xboxh_power_on_controller(p_itf));
+    return true;
+}
+
+// Consecutive failed interrupt-IN transfers. A wedged CH334R hub makes the
+// controller's IN poll fail continuously (~80/s, result=FAILED) while a healthy-but-
+// idle controller produces NO completions between its sparse packets (NAKs don't
+// complete) -- so a run of failures is a fast, false-positive-free "wedged" signal
+// (see host_recovery_task). Reset to 0 on any successful IN. Core1-only (xfer_cb runs
+// in tuh_task) -> relaxed atomic, load/store only (no RMW): on M0+ this emits the same
+// plain ldr/str as the prior volatile while documenting the cross-task publish intent.
+constexpr auto kRlx = std::memory_order_relaxed;
+std::atomic<uint32_t> s_in_err_streak{0};
+
+}  // namespace
 
 bool xboxh_send_report(uint8_t daddr, uint8_t idx, const void *report, uint16_t len) {
     TU_LOG_USBH("XBOX Send Report %d\r\n", len);
@@ -192,7 +302,7 @@ bool xboxh_receive_report(uint8_t daddr, uint8_t idx) {
 }
 
 bool xboxh_init(void) {
-    tu_memclr(_xbox_itf, sizeof(_xbox_itf));
+    tu_memclr(_xbox_itf.data(), sizeof(_xbox_itf));
     return true;
 }
 
@@ -217,9 +327,9 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
     xbox_interface_t *p_controller = find_new_itf();
     TU_ASSERT(p_controller);
 
-    uint8_t const *p_desc = (uint8_t const *)desc_itf;
+    uint8_t const *p_desc = reinterpret_cast<uint8_t const *>(desc_itf);
     p_desc = tu_desc_next(p_desc);
-    tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+    tusb_desc_endpoint_t const *desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
 
     for (int i = 0; i < desc_itf->bNumEndpoints; i++) {
         TU_ASSERT(TUSB_DESC_ENDPOINT == desc_ep->bDescriptorType);
@@ -237,88 +347,13 @@ bool xboxh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *d
         }
 
         p_desc = tu_desc_next(p_desc);
-        desc_ep = (tusb_desc_endpoint_t const *)p_desc;
+        desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
     }
     p_controller->itf_num = desc_itf->bInterfaceNumber;
     p_controller->daddr = dev_addr;
     p_controller->PID = pid;
     p_controller->VID = vid;
     return true;
-}
-
-static bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
-    if (p_itf->daddr == 0) return false;
-    if (!p_itf->is_powered) return false;
-
-    power_report_t out = make_power_report(get_sequence(), 0x05);
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    out.data.data = POWER_OFF;
-    out.data.frame.sequence = get_sequence();
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    out.data.frame.sequence = get_sequence();
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    out.data.frame.sequence = get_sequence();
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    out.data.data = POWER_SLEEP;
-    out.data.frame.sequence = get_sequence();
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-    p_itf->is_powered = false;
-    return true;
-}
-
-static const uint8_t xboxone_s_init[] = {0x05, 0x20, 0x00, 0x0f, 0x06};
-
-// CDD NOTE the controllers I've tested with don't have a way to turn them back on once we've turned
-// them off. Otherwise you have to press the guide button to wake them up - this behavior is
-// consistent even if I plug them straight into the xbox
-static bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
-    if (p_itf->daddr == 0) return false;
-    if (p_itf->is_powered) return false;
-    const power_report_t power_on = make_power_report(0, POWER_ON);
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    if ((p_itf->PID == XBOX_ONE_PID4 || p_itf->PID == 0x0b00 || p_itf->PID == XBOX_ONE_PID14)) {
-        TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, xboxone_s_init, sizeof(xboxone_s_init)));
-        wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-    }
-
-    led_mode_command_t out = make_led_mode_command(get_sequence(), LED_ON, 0x14);
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    p_itf->is_powered = true;
-    return true;
-}
-
-// Re-drive a mounted controller's power-on/init. An Xbox One GIP controller sends
-// CMD_ANNOUNCE repeatedly after it (re)attaches until the host initialises it. Our
-// one-shot power-on in xboxh_set_config() fires at mount, which a controller that
-// fully re-powered its GIP layer announces *after* -- so it misses our init and then
-// announces forever, never streaming input. Re-sending the init in response to an
-// announce knocks it into the running state. Blocks on tx (wait_for_tx_complete pumps
-// tuh_task), so call it from the core1 host loop -- never from inside a host callback.
-bool xboxh_reinit_controller(uint8_t daddr, uint8_t idx) {
-    xbox_interface_t *p_itf = get_xbox_itf(daddr, idx);
-    TU_VERIFY(p_itf);
-    p_itf->is_powered = false;  // force xboxh_power_on_controller() to re-send
-    return xboxh_power_on_controller(p_itf);
 }
 
 bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
@@ -338,66 +373,55 @@ bool xboxh_set_config(uint8_t daddr, uint8_t itf_num) {
     return true;
 }
 
-bool xboxh_reset_controller(xbox_interface_t *p_itf) {
-    xboxh_power_off_controller(p_itf);
-
-    power_report_t out = make_power_report(get_sequence(), 0x07);
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    out.data.frame.sequence = get_sequence();
-    out.data.data = 0x00;
-
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
-    wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
-
-    TU_ASSERT(xboxh_power_on_controller(p_itf));
-    return true;
+// Re-drive a mounted controller's power-on/init. An Xbox One GIP controller sends
+// CMD_ANNOUNCE repeatedly after it (re)attaches until the host initialises it. Our
+// one-shot power-on in xboxh_set_config() fires at mount, which a controller that
+// fully re-powered its GIP layer announces *after* -- so it misses our init and then
+// announces forever, never streaming input. Re-sending the init in response to an
+// announce knocks it into the running state. Blocks on tx (wait_for_tx_complete pumps
+// tuh_task), so call it from the core1 host loop -- never from inside a host callback.
+bool xboxh_reinit_controller(uint8_t daddr, uint8_t idx) {
+    xbox_interface_t *p_itf = get_xbox_itf(daddr, idx);
+    TU_VERIFY(p_itf);
+    p_itf->is_powered = false;  // force xboxh_power_on_controller() to re-send
+    return xboxh_power_on_controller(p_itf);
 }
 
 void xboxh_power_off_controllers() {
     LOG_INFO(CAT_HOST, "Powering OFF Xbox Controllers");
 
-    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
-        xboxh_power_off_controller(&_xbox_itf[i]);
+    for (auto &itf : _xbox_itf) {
+        xboxh_power_off_controller(&itf);
     }
 }
 
 void xboxh_power_on_controllers() {
     LOG_INFO(CAT_HOST, "Powering ON Xbox Controllers");
 
-    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
-        xboxh_power_on_controller(&_xbox_itf[i]);
+    for (auto &itf : _xbox_itf) {
+        xboxh_power_on_controller(&itf);
     }
 }
 
 void xboxh_reset_controllers() {
     LOG_INFO(CAT_HOST, "RESETTING Xbox Controllers");
 
-    for (int i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
-        xboxh_reset_controller(&_xbox_itf[i]);
+    for (auto &itf : _xbox_itf) {
+        xboxh_reset_controller(&itf);
     }
 }
 
-// Consecutive failed interrupt-IN transfers. A wedged CH334R hub makes the
-// controller's IN poll fail continuously (~80/s, result=FAILED) while a healthy-but-
-// idle controller produces NO completions between its sparse packets (NAKs don't
-// complete) -- so a run of failures is a fast, false-positive-free "wedged" signal
-// (see host_recovery_task). Reset to 0 on any successful IN. Core1-only (xfer_cb runs
-// in tuh_task) -> plain volatile is safe.
-static volatile uint32_t s_in_err_streak = 0;
-uint32_t xboxh_in_error_streak(void) { return s_in_err_streak; }
-void xboxh_clear_error_streak(void) { s_in_err_streak = 0; }
+uint32_t xboxh_in_error_streak(void) { return s_in_err_streak.load(kRlx); }
+void xboxh_clear_error_streak(void) { s_in_err_streak.store(0, kRlx); }
 
 bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
     uint8_t const dir = tu_edpt_dir(ep_addr);
 
     if (dir == TUSB_DIR_IN) {
         if (result == XFER_RESULT_SUCCESS)
-            s_in_err_streak = 0;
+            s_in_err_streak.store(0, kRlx);
         else
-            s_in_err_streak++;
+            s_in_err_streak.store(s_in_err_streak.load(kRlx) + 1, kRlx);
     }
 
     uint8_t const idx = get_idx_by_epaddr(daddr, ep_addr);
