@@ -17,6 +17,7 @@
 
 #include "bsp/board_api.h"
 #include "orb_debug.h"
+#include "orb_enum.hpp"
 #include "xbox_one_protocol.h"
 
 namespace {
@@ -142,44 +143,25 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
 }
 
 #if OPENRB_DEBUG_ENABLED
+// magic_enum only reflects enumerators whose value falls in [enum_range::min, max]. The
+// frame_command_e values are command BYTES spanning CMD_ACKNOWLEDGE (0x01) ..
+// CMD_AUDIO_SAMPLES (0x60); pin the per-enum range to exactly that span so every command
+// resolves. (0x60 happens to sit inside magic_enum's default [-128,127] window too, but
+// pinning the range keeps the generated reflection table small and the intent explicit.)
+template <>
+struct magic_enum::customize::enum_range<frame_command_e> {
+    static constexpr int min = 0x01;  // CMD_ACKNOWLEDGE
+    static constexpr int max = 0x60;  // CMD_AUDIO_SAMPLES
+};
+
+// Replaces the hand-rolled switch with magic_enum, preserving the two cases where the old
+// table diverged from the enumerator names so trace output stays byte-identical:
+//   - CMD_ACKNOWLEDGE was abbreviated "CMD_ACK" (not "CMD_ACKNOWLEDGE")
+//   - unknown / out-of-range commands rendered "Unknown CMD" (magic_enum yields "")
+// magic_enum's names are null-terminated, so .data() is a valid C string for the %s seam.
 const char *get_command_name(int cmd) {
-    switch (cmd) {
-        case CMD_ACKNOWLEDGE:
-            return "CMD_ACK";
-        case CMD_ANNOUNCE:
-            return "CMD_ANNOUNCE";
-        case CMD_STATUS:
-            return "CMD_STATUS";
-        case CMD_IDENTIFY:
-            return "CMD_IDENTIFY";
-        case CMD_POWER_MODE:
-            return "CMD_POWER_MODE";
-        case CMD_AUTHENTICATE:
-            return "CMD_AUTHENTICATE";
-        case CMD_GUIDE_BTN:
-            return "CMD_GUIDE_BTN";
-        case CMD_AUDIO_CONFIG:
-            return "CMD_AUDIO_CONFIG";
-        case CMD_RUMBLE:
-            return "CMD_RUMBLE";
-        case CMD_LED_MODE:
-            return "CMD_LED_MODE";
-        case CMD_SERIAL_NUM:
-            return "CMD_SERIAL_NUM";
-        case CMD_INPUT:
-            return "CMD_INPUT";
-        case CMD_LIST_INSTRUMENT:
-            return "CMD_LIST_INSTRUMENT";
-        case CMD_ADD_PLAYER:
-            return "CMD_ADD_PLAYER";
-        case CMD_DROP_PLAYER:
-            return "CMD_DROP_PLAYER";
-        case CMD_LIST_CONNECTED_INSTRUMENTS:
-            return "CMD_LIST_CONNECTED_INSTRUMENTS";
-        case CMD_AUDIO_SAMPLES:
-            return "CMD_AUDIO_SAMPLES";
-        default:
-            return "Unknown CMD";
-    }
+    if (cmd == CMD_ACKNOWLEDGE) return "CMD_ACK";
+    const std::string_view name = orb::enum_name(static_cast<frame_command_e>(cmd));
+    return name.empty() ? "Unknown CMD" : name.data();
 }
 #endif

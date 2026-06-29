@@ -60,6 +60,13 @@ target_link_libraries(tinyusb_common INTERFACE FreeRTOS-Kernel-Heap4)
 add_subdirectory(external)
 include_directories(inc)
 
+# magic_enum (Neargye/magic_enum @ v0.9.7): header-only compile-time enum reflection,
+# used debug-gated via inc/orb_enum.hpp to render enumerator names without hand-rolled
+# tables. Only the include path is needed; the tables are pulled in solely by DEBUG TUs
+# (OPENRB_DEBUG_ENABLED), so a release build links none of them. Include as
+# <magic_enum/magic_enum.hpp>.
+include_directories(external/magic_enum/include)
+
 # FatFs (vendored in our TinyUSB fork) for writing the log to a USB flash drive.
 # Pulled from external/tinyusb (PICO_TINYUSB_PATH), NOT pico-sdk's bundled tinyusb, so
 # the build depends only on the tinyusb tree we pin (the SDK's lib/tinyusb is otherwise

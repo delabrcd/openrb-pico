@@ -1,0 +1,47 @@
+# HOST unit-test build for the portable logic layer (protocol module).
+#
+# This is intentionally a STANDALONE host build -- it uses the machine's native
+# g++/clang, NOT the ARM cross-toolchain / Pico SDK. It is never referenced by the
+# firmware's top-level CMakeLists, so the firmware build is unaffected.
+#
+#   cmake -S test -B test/build
+#   cmake --build test/build
+#   ./test/build/protocol_tests
+#
+# It compiles the REAL src/xbox_one_protocol.cpp for the host and links it against
+# minimal stubs (test/host_stubs) plus the doctest tests, so the tests exercise the
+# actual protocol functions.
+
+cmake_minimum_required(VERSION 3.16)
+project(openrb_host_tests CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON) # protocol TU uses __attribute__((packed)) etc.
+
+get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+
+set(DOCTEST_DIR "${REPO_ROOT}/external/doctest")
+if(NOT EXISTS "${DOCTEST_DIR}/doctest/doctest.h")
+  message(FATAL_ERROR
+    "doctest submodule not found at ${DOCTEST_DIR}. Run: git submodule update --init external/doctest")
+endif()
+
+add_executable(protocol_tests
+  ${CMAKE_CURRENT_SOURCE_DIR}/test_xbox_one_protocol.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/host_stubs/host_stubs.cpp
+  ${REPO_ROOT}/src/xbox_one_protocol.cpp
+)
+
+target_include_directories(protocol_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/host_stubs   # bsp/board_api.h stub -- MUST resolve first
+  ${REPO_ROOT}/inc                         # real portable headers (protocol/log/c-api)
+  ${DOCTEST_DIR}                            # #include "doctest/doctest.h"
+)
+
+# Keep firmware-style debug logging compiled in (default) so the LOG_*/orb_debug.h
+# path through the protocol TU is actually built and linked against the no-op stubs.
+target_compile_options(protocol_tests PRIVATE -Wall -Wextra)
+
+enable_testing()
+add_test(NAME protocol_tests COMMAND protocol_tests)

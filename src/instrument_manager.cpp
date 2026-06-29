@@ -30,6 +30,7 @@
 #include "adapter.h"
 #include "adapter_ctx.h"
 #include "orb_debug.h"
+#include "orb_enum.hpp"
 #include "orb_log.h"
 
 // xbox_one_protocol.h / packet_queue.h are plain C headers with no C-linkage seam of their
@@ -55,8 +56,15 @@ constexpr std::size_t idx(instruments_e instrument) {
 }
 
 #if OPENRB_DEBUG_ENABLED
-constexpr std::array<const char *, kInstrumentCount> kInstrumentNames{"GUITAR_ONE", "GUITAR_TWO",
-                                                                      "DRUMS"};
+// Instrument name for trace/info logs -- replaces the old hand-rolled kInstrumentNames
+// table with magic_enum (orb::enum_name), EXCEPT for value 0: GUITAR_ONE aliases
+// FIRST_INSTRUMENT, which is declared first, and magic_enum returns the first-declared
+// enumerator sharing a value -- i.e. "FIRST_INSTRUMENT". Map value 0 explicitly back to
+// "GUITAR_ONE" so the log text stays byte-identical to the old table; GUITAR_TWO / DRUMS
+// resolve directly. (.data() is a valid C string: magic_enum's names are null-terminated.)
+inline const char *instrument_name(instruments_e instrument) {
+    return instrument == GUITAR_ONE ? "GUITAR_ONE" : orb::enum_name(instrument).data();
+}
 #endif
 
 // Add-player ("connect") and drop-player ("disconnect") wire payloads, one row per
@@ -92,7 +100,7 @@ class InstrumentManager {
     void notify_single(instruments_e instrument, xbox_packet_t *scratch) {
         if (instrument < N_INSTRUMENTS) {
             LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s", instrument,
-                    kInstrumentNames[idx(instrument)]);
+                    instrument_name(instrument));
             build_packet(scratch, instrument, /*connect=*/true);
             xbox_fifo_write(scratch);
         } else {
@@ -102,7 +110,7 @@ class InstrumentManager {
 
     void connect(instruments_e instrument, xbox_packet_t *scratch) {
         if (connected_[idx(instrument)].load(kRlx)) return;  // check ...
-        LOG_INFO(CAT_DEV, "%s connected!", kInstrumentNames[idx(instrument)]);
+        LOG_INFO(CAT_DEV, "%s connected!", instrument_name(instrument));
         connected_[idx(instrument)].store(true, kRlx);  // ... then set (not an atomic RMW)
 
         if (orb::service::adapter().state() != STATE_RUNNING) return;
@@ -113,7 +121,7 @@ class InstrumentManager {
 
     void disconnect(instruments_e instrument, xbox_packet_t *scratch) {
         if (!connected_[idx(instrument)].load(kRlx)) return;
-        LOG_INFO(CAT_DEV, "%s disconnected!", kInstrumentNames[idx(instrument)]);
+        LOG_INFO(CAT_DEV, "%s disconnected!", instrument_name(instrument));
         connected_[idx(instrument)].store(false, kRlx);
 
         if (orb::service::adapter().state() != STATE_RUNNING) return;
