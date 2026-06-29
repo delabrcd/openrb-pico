@@ -190,7 +190,7 @@ class DrumEngine {
    public:
     // --- core0: drum_task body --------------------------------------------------------
     void __not_in_flash_func(tick)() {
-        if (adapter_get_state() != STATE_RUNNING) return;
+        if (orb::service::adapter().state() != STATE_RUNNING) return;
 
         static std::uint8_t pending_msg[48];
         static midi_type_e type;

@@ -105,7 +105,7 @@ class InstrumentManager {
         LOG_INFO(CAT_DEV, "%s connected!", kInstrumentNames[idx(instrument)]);
         connected_[idx(instrument)].store(true, kRlx);  // ... then set (not an atomic RMW)
 
-        if (adapter_get_state() != STATE_RUNNING) return;
+        if (orb::service::adapter().state() != STATE_RUNNING) return;
 
         build_packet(scratch, instrument, /*connect=*/true);
         xbox_fifo_write(scratch);
@@ -116,7 +116,7 @@ class InstrumentManager {
         LOG_INFO(CAT_DEV, "%s disconnected!", kInstrumentNames[idx(instrument)]);
         connected_[idx(instrument)].store(false, kRlx);
 
-        if (adapter_get_state() != STATE_RUNNING) return;
+        if (orb::service::adapter().state() != STATE_RUNNING) return;
 
         build_packet(scratch, instrument, /*connect=*/false);
         xbox_fifo_write(scratch);

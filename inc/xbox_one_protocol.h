@@ -6,6 +6,11 @@
 #include <stdint.h>
 
 #include "orb_debug.h"
+#include "orb_c_api.h"
+
+// Transitional: xbox_one_protocol.c is still C; this seam gives its declarations C linkage
+// when included from a C++ TU (no-op in C) so they resolve until the module is converted.
+ORB_C_BEGIN
 
 enum frame_command_e {
     CMD_ACKNOWLEDGE = 0x01,
@@ -267,5 +272,7 @@ void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla
 #if OPENRB_DEBUG_ENABLED
 const char *get_command_name(int cmd);
 #endif
+
+ORB_C_END
 
 #endif

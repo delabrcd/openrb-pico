@@ -32,11 +32,17 @@
 #include "midi.h"
 #include "orb_bsp.h"
 #include "orb_log.h"
-#include "packet_queue.h"
 #include "pio_usb_configuration.h"
 #include "usb_log.h"
+// Transitional boundary: packet_queue / the xbox host+device drivers are still C and
+// their headers carry no C-linkage guard. Wrap them so their symbols resolve from this
+// C++ TU until those modules are converted (architecture doc principle 6) -- NOT an
+// internal facade, just including C headers from C++.
+extern "C" {
+#include "packet_queue.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
+}
 
 #define HOST_CONTROLLER_ID 1
 #define FIRST_XBOX_CONTROLLER_IDX 0
@@ -103,7 +109,7 @@ void xboxd_on_reset_cb() {
     set_auth_led(false);
 
     // TODO CDD - look into a better way of reinitializing the USB Host stack than a hard reset
-    if (adapter_get_state() != STATE_INIT && adapter_get_state() != STATE_NONE)
+    if (orb::service::adapter().state() != STATE_INIT && orb::service::adapter().state() != STATE_NONE)
         watchdog_reboot(0, 0, 10);
 }
 
@@ -113,14 +119,14 @@ static inline bool xboxh_send(const xbox_packet_t *buffer) {
 
 void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
     LOG_INFO(CAT_HOST, "Controller %d Connected", instance);
-    adapter_set_controller_seen(true);  // a controller mounted this boot (may still be a zombie)
+    orb::service::adapter().set_seen(true);  // a controller mounted this boot (may still be a zombie)
     // Always follow the most-recently-connected controller. On a replug the device
     // gets a new instance/address (and, if the old umount is missed or races, the
     // stale slot can linger), so adopting only when idx==UINT8_MAX would leave us
     // forwarding from the wrong slot -- the controller re-enumerates (LED on) but
     // its inputs get filtered by xboxh_packet_received_cb. We only track one active
     // controller, so taking over on every mount is correct and replug-safe.
-    adapter_set_controller(instance, dev_addr);
+    orb::service::adapter().set_controller(instance, dev_addr);
     // Grant a fresh silence window so the runtime recovery (usb_host_task) doesn't
     // mistake the gap between mount and the first input report for a wedged hub.
     g_host_last_rx_us = timer_hw->timerawl;
@@ -129,9 +135,9 @@ void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
 void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
     (void)dev_addr;
     LOG_INFO(CAT_HOST, "Controller %d Disconnected", instance);
-    if (instance == adapter_get_controller_idx()) {
-        adapter_clear_controller(instance);
-        adapter_set_controller_alive(false);  // require a fresh heartbeat from the next mount
+    if (instance == orb::service::adapter().controller_idx()) {
+        orb::service::adapter().clear_controller(instance);
+        orb::service::adapter().set_alive(false);  // require a fresh heartbeat from the next mount
     }
 }
 
@@ -140,7 +146,7 @@ void handle_controller_packet_running(const xbox_packet_t *data) {
         case CMD_ANNOUNCE:
             // Controller re-attached and is announcing -- it won't stream input until
             // the host re-inits it. Defer to the core1 loop (the init blocks on tx).
-            adapter_request_reinit();
+            orb::service::adapter().request_reinit();
             break;
 
         case CMD_GUIDE_BTN:
@@ -157,13 +163,13 @@ void handle_controller_packet_running(const xbox_packet_t *data) {
 }
 
 void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
-    if (idx != adapter_get_controller_idx()) return;
+    if (idx != orb::service::adapter().controller_idx()) return;
     if (ndata < sizeof(frame_t)) return;
-    adapter_set_controller_alive(true);  // a real packet arrived -> controller is alive, not a zombie
+    orb::service::adapter().set_alive(true);  // a real packet arrived -> controller is alive, not a zombie
     g_host_last_rx_us = timer_hw->timerawl;  // feed the runtime-recovery silence timer (core1)
     g_host_rx_count++;                       // tick so recovery can detect a fresh heartbeat
     LOG_TRC(CAT_HOST, "IN FROM CONTROLLER: %s", get_command_name(data->frame.command));
-    switch (adapter_get_state()) {
+    switch (orb::service::adapter().state()) {
         case STATE_AUTHENTICATING:
             xbox_fifo_write(data);
             break;
@@ -190,7 +196,7 @@ static void handle_auth(const xbox_packet_t *packet) {
         set_auth_led(true);
 
         LOG_INFO(CAT_DEV, "AUTHENTICATED!");
-        adapter_set_state(STATE_RUNNING);
+        orb::service::adapter().set_state(STATE_RUNNING);
 
         notify_xbox_of_all_instruments(&out_packet);
     }
@@ -215,7 +221,7 @@ static void handle_identify(const xbox_packet_t *packet) {
             break;
         case CMD_AUTHENTICATE:
             LOG_INFO(CAT_DEV, "Moving to Authenticate");
-            adapter_set_state(STATE_AUTHENTICATING);
+            orb::service::adapter().set_state(STATE_AUTHENTICATING);
             return handle_auth(packet);
             break;
         default:
@@ -228,7 +234,7 @@ static void handle_init(const xbox_packet_t *packet) {
     switch (packet->frame.command) {
         case CMD_IDENTIFY:
             LOG_INFO(CAT_DEV, "Moving to Identify");
-            adapter_set_state(STATE_IDENTIFYING);
+            orb::service::adapter().set_state(STATE_IDENTIFYING);
             return handle_identify(packet);
         default:
             break;
@@ -239,7 +245,7 @@ static void handle_running(const xbox_packet_t *packet) {
     switch (packet->frame.command) {
         case CMD_POWER_MODE:
             if (packet->power.data.data == POWER_OFF) {
-                adapter_set_state(STATE_POWER_OFF);
+                orb::service::adapter().set_state(STATE_POWER_OFF);
                 set_auth_led(false);
                 set_usb_host(false);
             }
@@ -251,7 +257,7 @@ static void handle_running(const xbox_packet_t *packet) {
             notify_xbox_of_all_instruments(&out_packet);
             break;
         case CMD_LIST_INSTRUMENT:
-            notify_xbox_of_single_instrument(packet->buffer[4], &out_packet);
+            notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->buffer[4]), &out_packet);
             break;
         default:
             break;
@@ -260,7 +266,7 @@ static void handle_running(const xbox_packet_t *packet) {
 }
 
 static void handle_xboxd_packet(const xbox_packet_t *packet) {
-    switch (adapter_get_state()) {
+    switch (orb::service::adapter().state()) {
         case STATE_NONE:
             return;
         case STATE_INIT:
@@ -286,11 +292,11 @@ bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf, uint32_t
 }
 
 static void announce_task() {
-    if (adapter_get_state() != STATE_INIT) return;
+    if (orb::service::adapter().state() != STATE_INIT) return;
 
     static unsigned long last_announce_time = 0;
     if ((board_millis() - last_announce_time) > ANNOUNCE_INTERVAL_MS) {
-        if (adapter_get_controller_idx() < UINT8_MAX) {
+        if (orb::service::adapter().controller_idx() < UINT8_MAX) {
             LOG_INFO(CAT_DEV, "ANNOUNCING");
             identifiers_get_announce(&out_packet);
             xbox_fifo_write(&out_packet);
@@ -375,7 +381,7 @@ static void host_recovery_task(void) {
 
     // Detect a loss: a controller mounted this boot but has since gone wedged. A clean
     // unplug also looks like this, so attempts are bounded (gave_up) until input returns.
-    if (!recovering && !gave_up && adapter_controller_seen() && wedged) {
+    if (!recovering && !gave_up && orb::service::adapter().seen() && wedged) {
         recovering = true;
         attempts = 0;
         last_attempt_us = now - HOST_RECOV_GRACE_US;  // act on the first pass
@@ -425,10 +431,10 @@ void usb_host_task(void *param) {
         // A running controller that re-announced needs its init re-sent (Issue: a
         // post-auth replug leaves it announcing forever, never streaming input).
         // Debounce so we re-init at most ~2x/s instead of on every announce.
-        if (adapter_take_reinit()) {
+        if (orb::service::adapter().take_reinit()) {
             uint32_t now = timer_hw->timerawl;
             uint8_t idx, addr;
-            if (adapter_get_controller(&idx, &addr) &&
+            if (orb::service::adapter().controller(&idx, &addr) &&
                 (uint32_t)(now - last_reinit_us) > 500000u) {
                 last_reinit_us = now;
                 LOG_WARN(CAT_RECOV, "Controller re-announced -> re-init");
@@ -443,7 +449,7 @@ void usb_host_task(void *param) {
         xbox_packet_t txp;
         while (host_tx_recv(&txp)) {
             uint8_t idx, addr;
-            if (adapter_get_controller(&idx, &addr)) {
+            if (orb::service::adapter().controller(&idx, &addr)) {
                 xboxh_send_report(addr, idx, &txp, txp.length);
             }
         }
@@ -512,15 +518,15 @@ static void recovery_reboot_task(void) {
     // reboot if that runtime recovery exhausts its attempts.
     if (g_runtime_recovery_engaged) { silent_since_ms = 0; return; }
 
-    if (adapter_get_state() >= STATE_RUNNING) {  // authenticated -> controller now optional
+    if (orb::service::adapter().state() >= STATE_RUNNING) {  // authenticated -> controller now optional
         disarmed = true;
         watchdog_hw->scratch[RECOV_SCRATCH] = 0;  // clear so the next reset starts fresh
         if (g_recov_count) LOG_WARN(CAT_RECOV, "RECOVERY: authenticated after %lu reboot(s)",
                                     (unsigned long)g_recov_count);
         return;
     }
-    if (adapter_controller_alive()) { silent_since_ms = 0; return; }  // live -> healthy, nothing to do
-    if (!adapter_controller_seen())  { silent_since_ms = 0; return; }  // none present -> nothing to recover
+    if (orb::service::adapter().alive()) { silent_since_ms = 0; return; }  // live -> healthy, nothing to do
+    if (!orb::service::adapter().seen())  { silent_since_ms = 0; return; }  // none present -> nothing to recover
 
     // A controller mounted but isn't sending a heartbeat (zombie, or lost before auth).
     // Debounce a brief blip (re-enumeration) before acting.
@@ -551,7 +557,7 @@ static void init() {
 
     // Bring the cross-core adapter context up before anything can touch it
     // (state=STATE_NONE, no controller tracked, flags cleared).
-    adapter_ctx_init();
+    orb::service::adapter().reset();
 
     // Cross-core queues (host-TX core0->core1, MIDI notes core1->core0). Created
     // before the scheduler starts; safe to create here alongside the other init.
@@ -610,7 +616,7 @@ static void init() {
 
     memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
 
-    adapter_set_state(STATE_INIT);
+    orb::service::adapter().set_state(STATE_INIT);
     LOG_INFO(CAT_SYS, "finished init, starting main process...");
 }
 

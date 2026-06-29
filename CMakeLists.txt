@@ -72,7 +72,7 @@ set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_D
     PROPERTIES COMPILE_FLAGS "-w")
 
 set(SOURCES
-    src/main.c
+    src/main.cpp
     src/adapter_ctx.cpp
     src/app_queues.cpp
     src/app_tasks.cpp
@@ -85,8 +85,8 @@ set(SOURCES
     ${FATFS_DIR}/ffunicode.c
     src/drums.cpp
     src/packet_queue.c
-    src/host_drivers.c
-    src/usb_descriptors.c
+    src/host_drivers.cpp
+    src/usb_descriptors.cpp
     src/xbox_controller_driver.c
     src/xbox_device_driver.c
     src/xbox_one_protocol.c
