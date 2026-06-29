@@ -1,7 +1,7 @@
 /*
  * Wireless-legacy-adapter (WLA) identifier / protocol-response wire tables and their
- * accessors, as modern C++ behind the unchanged extern "C" API its C consumer (main.c)
- * calls -- same C-facade pattern as instrument_manager.cpp.
+ * accessors, as modern C++ behind a small free-function API its C++ consumer (main.cpp)
+ * calls -- same pattern as instrument_manager.cpp.
  *
  * The byte tables below are USB WIRE DATA: the exact response payloads the emulated WLA
  * sends during announce/identify. They MUST stay byte-identical and live in flash, so --
@@ -22,14 +22,11 @@
 
 #include "orb_log.h"
 
-// xbox_one_protocol.h (init_packet, xbox_packet_t) and identifiers.h have their wire
-// symbols defined in C TUs; pull them in under extern "C" so init_packet resolves to its
-// C definition. identifiers.h's own facade decls are already extern "C" via ORB_C_BEGIN;
-// the nesting is harmless. Same local-seam pattern instrument_manager.cpp / midi.cpp use.
-extern "C" {
+// identifiers.h (which pulls in xbox_one_protocol.h) and xbox_one_protocol.h are C++
+// headers now -- init_packet, the identifiers_* API and xbox_packet_t are plain C++,
+// defined in C++ TUs -- so include them normally.
 #include "identifiers.h"
 #include "xbox_one_protocol.h"
-}
 
 namespace {
 
@@ -88,8 +85,8 @@ constexpr std::array<std::span<const std::uint8_t>, 7> kIdentifyList{
 
 }  // namespace
 
-// --- extern "C" facade (declared extern "C" via the orb_c_api.h seam in identifiers.h) ---
-// main.c calls these unchanged.
+// --- public API (plain C++ free functions, declared in identifiers.h) -------------------
+// main.cpp calls these unchanged.
 
 int identifiers_get_n() { return static_cast<int>(kIdentifyList.size()); }
 

@@ -6,18 +6,11 @@
 #include <stdint.h>
 
 #include "orb_debug.h"
-#include "orb_c_api.h"
 
 /* Xbox One data taken from descriptors: max wire packet size (BUCKET A). C++-only
  * constexpr -- every consumer is C++, and it is used both in a static_assert and to size
- * the wire union's buffer (constexpr works in both). It lives OUTSIDE the ORB_C_BEGIN/END
- * seam below: that linkage-specification is for the C-linkage function declarations, not a
- * compile-time constant. */
+ * the wire union's buffer. */
 inline constexpr std::size_t XBOX_ONE_EP_MAXPKTSIZE = 64;
-
-// Transitional: xbox_one_protocol.c is still C; this seam gives its declarations C linkage
-// when included from a C++ TU (no-op in C) so they resolve until the module is converted.
-ORB_C_BEGIN
 
 enum frame_command_e {
     CMD_ACKNOWLEDGE = 0x01,
@@ -276,5 +269,3 @@ void fill_guitar_input_from_hid_report(const uint8_t *report, xbox_packet_t *wla
 #if OPENRB_DEBUG_ENABLED
 const char *get_command_name(int cmd);
 #endif
-
-ORB_C_END

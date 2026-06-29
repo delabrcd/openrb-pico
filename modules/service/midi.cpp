@@ -12,12 +12,9 @@
 #include "orb_debug.h"
 #include "osal/timer.hpp"
 
-// instrument_manager.h (and the xbox_one_protocol.h it pulls in) is a plain C header
-// with no C-linkage seam of its own; this is the only C++ TU that includes it, so wrap
-// it locally so connect/disconnect_instrument resolve to their C definitions.
-extern "C" {
+// instrument_manager.h (and the xbox_one_protocol.h it pulls in) is a C++ header now;
+// connect/disconnect_instrument are plain C++ free functions, so include it normally.
 #include "instrument_manager.h"
-}
 
 static int count = 0;
 static uint8_t note_on_message[3] = {NoteOn, 0, 0};

@@ -20,11 +20,11 @@
 // no sleep (docs/FREERTOS-PORT.md gotcha #2).
 //
 // dlog_printf / dlog_init / dlog_set_sink (dlog.h) and usb_log_write (usb_log.h) are
-// C-linkage producer seams into the dlog SPSC layer -- called directly; that is the
-// boundary to dlog. The LOG_* macros expand to orb_log_emit, a transitional
-// extern "C" shim (below) for the C TUs still using them; orb_log_tusb_printf is the
-// TinyUSB vendor hook. Both extern "C" symbols are DEFINED inside namespace orb::log
-// so they reach the internal state while keeping their unmangled global names.
+// producer seams into the dlog SPSC layer -- called directly; that is the boundary to
+// dlog. The LOG_* macros expand to orb_log_emit, a plain C++ free function (below);
+// orb_log_tusb_printf is the TinyUSB vendor hook and keeps C linkage. All three are
+// DEFINED inside namespace orb::log so they reach the internal state -- orb_log_tusb_printf
+// additionally carries extern "C" to keep its unmangled global name for the stack.
 
 namespace orb::log {
 namespace {
@@ -178,23 +178,11 @@ void set_cat_level(orb_cat_t cat, int level) {
 
 int get_level() { return static_cast<int>(g_log_level.load(std::memory_order_relaxed)); }
 
-// --- C-linkage seam ----------------------------------------------------------
-// Defined inside namespace orb::log so they can reach the internal state above; the
-// extern "C" linkage gives them unmangled global symbols matching the header
-// declarations. orb_log_emit / orb_log_hexdump are transitional shims for the C TUs
-// whose LOG_* / OPENRB_DEBUG macros expand into them. orb_log_tusb_printf is the
-// permanent TinyUSB CFG_TUSB_DEBUG_PRINTF vendor hook.
-extern "C" void orb_log_emit(int level, int cat, const char* fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    emit_v(level, cat, fmt, ap);
-    va_end(ap);
-}
-
-extern "C" void orb_log_hexdump(int level, int cat, const void* data, uint32_t len) {
-    hexdump(level, cat, std::span<const std::byte>{static_cast<const std::byte*>(data), len});
-}
-
+// --- Vendor seam -------------------------------------------------------------
+// orb_log_tusb_printf is the permanent TinyUSB CFG_TUSB_DEBUG_PRINTF vendor hook. It
+// stays extern "C" (the stack calls it by its unmangled global symbol) and is defined
+// inside namespace orb::log -- with C language linkage the namespace is irrelevant to the
+// symbol, so this matches the global header declaration while reaching the internal state.
 extern "C" int orb_log_tusb_printf(const char* fmt, ...) {
     if (LOG_LEVEL_DEBUG > static_cast<int>(load_cat(CAT_TUSB))) return 0;
     char tmp[160];
@@ -210,3 +198,20 @@ extern "C" int orb_log_tusb_printf(const char* fmt, ...) {
 }
 
 }  // namespace orb::log
+
+// --- Producers ---------------------------------------------------------------
+// orb_log_emit / orb_log_hexdump are the plain C++ free functions the LOG_* / OPENRB_DEBUG
+// macros expand into. The macros call them UNQUALIFIED from every namespace, so the header
+// declares them at global scope -- hence they are defined here at global scope too (a
+// matching definition), reaching the renderer through orb::log::.
+void orb_log_emit(int level, int cat, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    orb::log::emit_v(level, cat, fmt, ap);
+    va_end(ap);
+}
+
+void orb_log_hexdump(int level, int cat, const void* data, uint32_t len) {
+    orb::log::hexdump(level, cat,
+                      std::span<const std::byte>{static_cast<const std::byte*>(data), len});
+}

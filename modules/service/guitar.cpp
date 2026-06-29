@@ -24,17 +24,13 @@
 #include "orb_debug.h"
 #include "orb_log.h"
 
-// instrument_manager.h has its own ORB_C_BEGIN seam, but packet_queue.h and
-// xbox_one_protocol.h (the latter pulled in by both of the others) are plain C headers with
-// no seam -- their functions (xbox_fifo_write, fill_guitar_input_from_hid_report) are
-// defined in C TUs, so wrap all three in extern "C" to resolve to those C definitions. Same
-// local-seam pattern instrument_manager.cpp / midi.cpp use (the nested ORB_C_BEGIN in
-// instrument_manager.h is harmless).
-extern "C" {
+// instrument_manager.h (which pulls in xbox_one_protocol.h), packet_queue.h and
+// xbox_one_protocol.h are all C++ headers now -- their functions (xbox_fifo_write,
+// fill_guitar_input_from_hid_report, the connect/disconnect API) are plain C++ free
+// functions in C++ TUs -- so include them normally.
 #include "instrument_manager.h"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
-}
 
 namespace orb::driver {
 namespace {

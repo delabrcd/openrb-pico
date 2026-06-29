@@ -1,9 +1,9 @@
 /*
  * Connected-instrument tracking + the Xbox add/drop-player notifications, as a modern-C++
- * service (orb::service::InstrumentManager) behind the unchanged extern "C" API its C
- * consumers (drums.c, guitar.c, midi.cpp, main.c) call. Same service-rewrite pattern as
- * adapter_ctx.cpp: a C++ object owns the state/logic, a thin C-linkage facade preserves
- * the call sites.
+ * service (orb::service::InstrumentManager) behind a small free-function API its C++
+ * consumers (drums.cpp, guitar.cpp, midi.cpp, main.cpp) call. Same service-rewrite pattern
+ * as adapter_ctx.cpp: a C++ object owns the state/logic, thin free functions forward into
+ * the single instance.
  *
  * Concurrency: every entry point (connect/disconnect from the core0 instrument-input task
  * and the core0 timer-service disconnect callback; notify_* from the core0 device stack)
@@ -33,17 +33,13 @@
 #include "orb_enum.hpp"
 #include "orb_log.h"
 
-// xbox_one_protocol.h / packet_queue.h are plain C headers with no C-linkage seam of their
-// own (init_packet, xbox_fifo_write are defined in C TUs); wrap them -- and
-// instrument_manager.h, which pulls xbox_one_protocol.h in -- in extern "C" so those
-// symbols resolve to their C definitions. Same local-seam pattern midi.cpp uses. (My own
-// facade decls inside instrument_manager.h are already extern "C" via ORB_C_BEGIN; the
-// nesting is harmless.)
-extern "C" {
+// instrument_manager.h (which pulls in xbox_one_protocol.h), packet_queue.h and
+// xbox_one_protocol.h are all C++ headers now -- their functions (init_packet,
+// xbox_fifo_write, the connect/disconnect/notify API) are plain C++ free functions
+// defined in C++ TUs, so include them normally.
 #include "instrument_manager.h"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
-}
 
 namespace orb::service {
 namespace {
@@ -152,8 +148,8 @@ InstrumentManager g_instruments;
 }  // namespace
 }  // namespace orb::service
 
-// --- extern "C" facade (declared extern "C" via the orb_c_api.h seam in the header) ------
-// The C consumers call these unchanged; they forward into the single InstrumentManager.
+// --- public API (plain C++ free functions, declared in instrument_manager.h) ------------
+// The consumers call these unchanged; they forward into the single InstrumentManager.
 
 void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space) {
     orb::service::g_instruments.notify_all(scratch_space);

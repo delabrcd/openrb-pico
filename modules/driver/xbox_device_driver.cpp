@@ -17,12 +17,9 @@
 #include "device/usbd_pvt.h"
 #include "xbox_device_driver.h"
 
-// packet_queue.h (xbox_fifo_read et al.) is a plain C header with no C-linkage seam of its
-// own; wrap it so its symbols resolve to their C definitions. xbox_one_protocol.h is already
-// seamed (ORB_C_BEGIN) so it is included normally above.
-extern "C" {
+// packet_queue.h (xbox_fifo_read et al.) and xbox_one_protocol.h (included above) are C++
+// headers now -- their functions are plain C++ free functions -- so include normally.
 #include "packet_queue.h"
-}
 
 // only need a fifo for sent packets
 #define XBOXD_N_BUF 15

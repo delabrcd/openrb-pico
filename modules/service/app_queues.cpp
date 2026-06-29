@@ -1,8 +1,8 @@
 /*
  * Inter-task / inter-core queues, now expressed with the orb::osal::Queue<> RAII wrapper
  * (inc/osal/queue.hpp) instead of hand-rolled storage+control-block+handle triples.
- * The C free-function API (declared extern "C" in app_queues.h) is unchanged, so the C
- * callers (drums.c, main.c) are untouched.
+ * The free-function API (declared in app_queues.h) is unchanged; every caller
+ * (drums.cpp, main.cpp) is a C++ TU.
  */
 #include "app_queues.h"
 

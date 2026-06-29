@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "orb_c_api.h"  // ORB_C_BEGIN/END — the C-linkage producer/vendor seam
-
 // Unified deferred logging front end. Sits ON TOP OF the per-core SPSC ring in
 // src/dlog.c (unchanged) and adds: 5 log levels, category tags, a producer-side
 // timestamp, a column-aligned line format, and optional inline ANSI color.
@@ -16,12 +14,10 @@
 // locks, no sleep/board_millis (see docs/FREERTOS-PORT.md gotcha #2).
 //
 // Implementation: src/orb_log.cpp, modern C++ in `namespace orb::log`. The LOG_*
-// macros below are the public API and expand to orb_log_emit(...) -- a thin
-// transitional `extern "C"` shim (in namespace orb::log) so the macros still
-// compile from the remaining C TUs (xbox_controller_driver.c, and
-// xbox_device_driver.c / xbox_one_protocol.c via orb_debug.h). orb_log_tusb_printf
-// is the permanent TinyUSB CFG_TUSB_DEBUG_PRINTF vendor seam. The runtime config
-// API (init/set_level/...) is C++-only -- callers are C++.
+// macros below are the public API and expand to orb_log_emit(...) -- a plain C++
+// free function (every caller is C++). orb_log_tusb_printf is the permanent TinyUSB
+// CFG_TUSB_DEBUG_PRINTF vendor seam and keeps C linkage. The runtime config API
+// (init/set_level/...) is C++-only -- callers are C++.
 
 // --- Levels (ordered; higher == more verbose; 0 == off) ----------------------
 #define LOG_LEVEL_NONE 0
@@ -74,19 +70,17 @@ int get_level();                               // current global runtime floor
 }  // namespace orb::log
 #endif
 
-// --- Producers / vendor seam (C-linkage) -------------------------------------
-// orb_log_emit / orb_log_hexdump: transitional `extern "C"` shims the LOG_* macros
-// expand into, so those macros keep compiling from the remaining C TUs. They
-// forward into orb::log and are retired once those TUs become C++.
-// orb_log_tusb_printf: the permanent TinyUSB CFG_TUSB_DEBUG_PRINTF target. Buckets
-// fragments as CAT_TUSB at DEBUG but does NOT prepend a per-call prefix -- TinyUSB
-// emits partial line fragments, so a prefix per call would inject mid-line.
-ORB_C_BEGIN
+// --- Producers / vendor seam -------------------------------------------------
+// orb_log_emit / orb_log_hexdump: plain C++ free functions the LOG_* macros expand
+// into; they forward into orb::log.
+// orb_log_tusb_printf: the permanent TinyUSB CFG_TUSB_DEBUG_PRINTF target -- a vendor
+// seam, so it keeps `extern "C"` (the stack calls it by its unmangled C symbol). Buckets
+// fragments as CAT_TUSB at DEBUG but does NOT prepend a per-call prefix -- TinyUSB emits
+// partial line fragments, so a prefix per call would inject mid-line.
 void orb_log_emit(int level, int cat, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 void orb_log_hexdump(int level, int cat, const void *data, uint32_t len);
-int orb_log_tusb_printf(const char *fmt, ...);
-ORB_C_END
+extern "C" int orb_log_tusb_printf(const char *fmt, ...);
 
 // --- Macro API ---------------------------------------------------------------
 #define ORB_LOG_(lvl, cat, ...) orb_log_emit((lvl), (cat), __VA_ARGS__)

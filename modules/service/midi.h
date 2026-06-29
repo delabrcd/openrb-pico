@@ -2,10 +2,6 @@
 
 #include <stdint.h>
 
-#include "orb_c_api.h"
-
-ORB_C_BEGIN
-
 typedef enum {
     InvalidType = 0x00,                      ///< For notifying errors
     NoteOff = 0x80,                          ///< Channel Message - Note Off
@@ -35,7 +31,6 @@ typedef enum {
     SystemReset = 0xFF,    ///< System Real Time - System Reset
 } midi_type_e;
 
+// Plain C++ free functions (every consumer is a C++ TU); defined in midi.cpp.
 void serial_midi_init();
 int serial_midi_read(uint8_t* buf);
-
-ORB_C_END

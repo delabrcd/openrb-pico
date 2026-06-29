@@ -1,10 +1,8 @@
 /*
  * GIP (Xbox One) packet construction / parsing for the emulated wireless legacy adapter,
- * as modern C++ behind the unchanged extern "C" API its still-C drivers
- * (xbox_controller_driver.c / xbox_device_driver.c) call. The public functions keep their
- * C linkage via the ORB_C_BEGIN seam in xbox_one_protocol.h; only the internals are
- * modernised. The wire structs (frame_t, xbox_packet_t, the input packets) stay the
- * unchanged packed/standard-layout aggregates declared in the header.
+ * as modern C++. The public functions are plain C++ free functions (every consumer is a
+ * C++ TU); the wire structs (frame_t, xbox_packet_t, the input packets) stay the unchanged
+ * packed/standard-layout aggregates declared in the header.
  *
  * CRITICAL: every emitted/parsed byte is identical to the original C -- this builds the
  * drum/guitar input packets and parses controller input.

@@ -1,9 +1,9 @@
 /*
- * Drum engine, as a modern-C++ service (orb::service::DrumEngine) behind the unchanged
- * extern "C" entry points its C callers (main.c) and the TinyUSB host stack call. Same
- * service-rewrite pattern as adapter_ctx.cpp / instrument_manager.cpp: a C++ object owns
- * the input packet + the per-output trigger/aging state, thin C-linkage shims forward
- * into the single instance.
+ * Drum engine, as a modern-C++ service (orb::service::DrumEngine). drum_task /
+ * drums_read_midi_host are plain C++ free functions its C++ callers (main.cpp) use; the
+ * TinyUSB host stack calls the tuh_midi_*_cb seam by C symbol. Same service-rewrite
+ * pattern as adapter_ctx.cpp / instrument_manager.cpp: a C++ object owns the input packet
+ * + the per-output trigger/aging state, thin shims forward into the single instance.
  *
  * The engine consumes parsed MIDI (NoteOn -> a pad/cymbal lane; ControlChange -> the
  * gated hi-hat pedal state machine) from two sources -- the USB-host note queue
@@ -41,18 +41,15 @@
 #include "orb_log.h"
 #include "usb_midi_host.h"
 
-// xbox_one_protocol.h / packet_queue.h are plain C headers with no C-linkage seam of
-// their own (init_packet, xbox_fifo_write are defined in C TUs); wrap them -- and
-// instrument_manager.h, which pulls xbox_one_protocol.h in -- in extern "C" so those
-// symbols resolve to their C definitions. Same local-seam pattern instrument_manager.cpp
-// uses. xbox_one_protocol.h MUST be first included here, before app_queues.h pulls it.
-extern "C" {
+// instrument_manager.h (which pulls in xbox_one_protocol.h), packet_queue.h and
+// xbox_one_protocol.h are all C++ headers now (init_packet, xbox_fifo_write, the
+// connect/disconnect API are plain C++ free functions in C++ TUs), so include them
+// normally.
 #include "instrument_manager.h"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
-}
 
-#include "app_queues.h"  // midi_note queue (pulls xbox_one_protocol.h -> already C-linkage)
+#include "app_queues.h"  // midi_note queue
 
 namespace orb::service {
 namespace {
@@ -348,11 +345,12 @@ constinit DrumEngine g_engine;
 }  // namespace
 }  // namespace orb::service
 
-// --- extern "C" boundary -----------------------------------------------------------------
-// drum_task / drums_read_midi_host are declared C-linkage via drums.h (the ORB_C_BEGIN
-// seam); tuh_midi_mount_cb / tuh_midi_umount_cb via usb_midi_host.h. They stay thin shims
-// that forward into the single DrumEngine, keeping the same __not_in_flash_func placement
-// the originals had (drum_task + drums_read_midi_host in RAM; the mount/umount cbs not).
+// --- boundary ----------------------------------------------------------------------------
+// drum_task / drums_read_midi_host are plain C++ free functions declared in drums.h;
+// tuh_midi_mount_cb / tuh_midi_umount_cb are the TinyUSB host vendor seam (C-linkage via
+// usb_midi_host.h). They stay thin shims that forward into the single DrumEngine, keeping
+// the same __not_in_flash_func placement the originals had (drum_task +
+// drums_read_midi_host in RAM; the mount/umount cbs not).
 
 void __not_in_flash_func(drum_task)() { orb::service::g_engine.tick(); }
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "orb_c_api.h"  // ORB_C_BEGIN/END (impl is C++ now; callers are C)
 #include "xbox_one_protocol.h"
 
 // Instrument identity. Unscoped enum (not enum class) on purpose: it is part of the C
@@ -15,12 +14,9 @@ typedef enum {
     N_INSTRUMENTS,
 } instruments_e;
 
-ORB_C_BEGIN
-
+// Plain C++ free functions (every consumer is a C++ TU); defined in instrument_manager.cpp.
 void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space);
 void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
 void connect_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
 void disconnect_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
-
-ORB_C_END
 

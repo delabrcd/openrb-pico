@@ -114,10 +114,9 @@ DeviceTxFifo<xbox_packet_t, kXboxFifoDepth> s_xbox_fifo;
 }  // namespace
 }  // namespace orb::driver
 
-// --- extern "C" public API (declared via the ORB_C_BEGIN seam in packet_queue.h) --------
-// Still reached from the C driver (xbox_device_driver) and the C++ feature TUs (drums,
-// guitar, instrument_manager, main); signatures + C linkage are unchanged. The seam
-// retires once the last C caller becomes C++.
+// --- public API (plain C++ free functions, declared in packet_queue.h) ------------------
+// Reached from the device driver (xbox_device_driver) and the feature TUs (drums, guitar,
+// instrument_manager, main); thin forwarders into the single DeviceTxFifo instance.
 void xbox_fifo_init(void) { orb::driver::s_xbox_fifo.init(); }
 uint32_t xbox_fifo_read(xbox_packet_t *buffer) { return orb::driver::s_xbox_fifo.read(*buffer); }
 uint32_t xbox_fifo_peek(xbox_packet_t *buffer) { return orb::driver::s_xbox_fifo.peek(*buffer); }

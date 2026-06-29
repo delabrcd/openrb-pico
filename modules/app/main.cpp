@@ -34,15 +34,13 @@
 #include "orb_log.h"
 #include "pio_usb_configuration.h"
 #include "usb_log.h"
-// Transitional boundary: packet_queue / the xbox host+device drivers are still C and
-// their headers carry no C-linkage guard. Wrap them so their symbols resolve from this
-// C++ TU until those modules are converted (architecture doc principle 6) -- NOT an
-// internal facade, just including C headers from C++.
-extern "C" {
+// packet_queue.h is a C++ header now (plain C++ free functions). The xbox host/device
+// driver headers are C++ TUs but expose the genuine TinyUSB driver-class callback seam
+// (xboxh_* / xboxd_* / the weak *_cb hooks implemented below), so they keep their own
+// internal extern "C" guard -- include all three normally here.
 #include "packet_queue.h"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
-}
 
 #define HOST_CONTROLLER_ID 1
 #define FIRST_XBOX_CONTROLLER_IDX 0

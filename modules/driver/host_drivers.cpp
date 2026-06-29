@@ -6,10 +6,10 @@
  * constexpr std::array, but every entry is an aggregate of C function pointers (midih_* from
  * usb_midi_host.c, xboxh_* from xbox_controller_driver.c) -- the stored bytes are unchanged.
  *
- * C seam: usb_midi_host.h carries its own __cplusplus extern "C" guard, but
- * xbox_controller_driver.h is a plain C header with no seam, so its include is wrapped in a
- * local extern "C" block (the same pattern instrument_manager.cpp / midi.cpp use) to resolve
- * the xboxh_* function pointers to their C definitions.
+ * C seam: usb_midi_host.h carries its own __cplusplus extern "C" guard, and
+ * xbox_controller_driver.h self-guards its xboxh_* declarations with its own extern "C"
+ * block (the genuine TinyUSB driver-class callback seam), so both are included normally;
+ * the xboxh_* function pointers still resolve to their C-linkage definitions.
  */
 #include <array>
 #include <cstdint>
@@ -20,9 +20,7 @@
 #include "usb_midi_host.h"
 // #include "xinput_host.h"
 
-extern "C" {
 #include "xbox_controller_driver.h"
-}
 
 namespace orb::driver {
 namespace {
