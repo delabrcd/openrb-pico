@@ -52,6 +52,8 @@ typedef enum {
     CAT_RECOV,
     CAT_USBLOG,
     CAT_TUSB,
+    CAT_WIRE,  // raw USB packet traffic (per-frame IN/OUT + hex dumps) -- its own category so
+               // it can be muted independently of CAT_DEV/CAT_HOST flow, even at the TRACE floor
     CAT_COUNT
 } orb_cat_t;
 

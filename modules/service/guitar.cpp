@@ -126,8 +126,8 @@ void umount(std::uint8_t dev_addr) {
 
 void report_received(std::uint8_t dev_addr, std::uint8_t instance,
                      std::span<const std::uint8_t> report) {
-    LOG_TRC(CAT_DRUM, "Report Received");
-    LOG_HEXDUMP(CAT_DRUM, LOG_LEVEL_TRACE, report.data(), report.size());
+    LOG_TRC(CAT_WIRE, "Report Received");
+    LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, report.data(), report.size());
 
     Guitar* g = find_guitar(dev_addr);
     if (g == nullptr) return;

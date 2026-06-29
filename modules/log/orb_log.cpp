@@ -43,9 +43,9 @@ constexpr std::size_t kLineMax = 192u;
 // land in .data/.bss with no global constructor.
 constinit std::atomic<uint8_t> g_log_level{ORB_LOG_LEVEL};
 
-static_assert(CAT_COUNT == 8, "update g_cat_level initializer to match CAT_COUNT");
+static_assert(CAT_COUNT == 9, "update g_cat_level initializer to match CAT_COUNT");
 constinit std::array<std::atomic<uint8_t>, CAT_COUNT> g_cat_level{
-    {{ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL},
+    {{ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL},
      {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}}};
 
 inline uint8_t load_cat(int cat) {
@@ -62,7 +62,7 @@ constexpr std::array<const char*, 6> kLevelName{
 };
 
 constexpr std::array<const char*, CAT_COUNT> kCatName{
-    "SYS", "HOST", "DEV", "DRUM", "MIDI", "RECOV", "USBLOG", "TUSB",
+    "SYS", "HOST", "DEV", "DRUM", "MIDI", "RECOV", "USBLOG", "TUSB", "WIRE",
 };
 
 #if ORB_LOG_COLOR

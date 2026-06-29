@@ -174,7 +174,7 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     orb::service::adapter().set_alive(true);  // a real packet arrived -> controller is alive, not a zombie
     g_host_last_rx_us = timer_hw->timerawl;  // feed the runtime-recovery silence timer (core1)
     g_host_rx_count++;                       // tick so recovery can detect a fresh heartbeat
-    LOG_TRC(CAT_HOST, "IN FROM CONTROLLER: %s", get_command_name(data->frame.command));
+    LOG_TRC(CAT_WIRE, "IN FROM CONTROLLER: %s", get_command_name(data->frame.command));
     switch (orb::service::adapter().state()) {
         case STATE_AUTHENTICATING:
             xbox_fifo_write(data);
@@ -193,7 +193,7 @@ void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t 
     (void)idx;
     (void)data;
     (void)ndata;
-    LOG_TRC(CAT_HOST, "Sent Controller %d bytes (%s)", ndata, get_command_name(data->frame.command));
+    LOG_TRC(CAT_WIRE, "Sent Controller %d bytes (%s)", ndata, get_command_name(data->frame.command));
 }
 
 static void handle_auth(const xbox_packet_t *packet) {
