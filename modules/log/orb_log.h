@@ -43,7 +43,11 @@
 #endif
 
 // --- Categories --------------------------------------------------------------
-typedef enum {
+// Scoped enum (enum class) per the modern-C++ idiom; the enumerators keep their CAT_*
+// names so the many LOG_*(CAT_X, ...) call sites read unchanged. An explicit uint8_t
+// underlying type matches the per-category atomic<uint8_t> level table.
+namespace orb::log {
+enum class OrbCat : uint8_t {
     CAT_SYS = 0,
     CAT_HOST,
     CAT_DEV,
@@ -55,7 +59,13 @@ typedef enum {
     CAT_WIRE,  // raw USB packet traffic (per-frame IN/OUT + hex dumps) -- its own category so
                // it can be muted independently of CAT_DEV/CAT_HOST flow, even at the TRACE floor
     CAT_COUNT
-} orb_cat_t;
+};
+}  // namespace orb::log
+
+// Bring the CAT_* enumerators to global scope so every existing LOG_*(CAT_X, ...) /
+// OPENRB_DEBUG call site keeps compiling unchanged in spelling (the ORB_LOG_/LOG_HEXDUMP
+// macros static_cast the category to int for the int-taking producers below).
+using enum orb::log::OrbCat;
 
 // --- Runtime control ---------------------------------------------------------
 // Above the compile-time floor, an atomic<uint8_t> table gates at run time
@@ -66,8 +76,8 @@ typedef enum {
 #ifdef __cplusplus
 namespace orb::log {
 void init();                                  // wraps dlog_init() + usb_log sink
-void set_level(int level);                     // global runtime floor (all cats)
-void set_cat_level(orb_cat_t cat, int level);  // per-category override
+void set_level(int level);                  // global runtime floor (all cats)
+void set_cat_level(OrbCat cat, int level);  // per-category override
 int get_level();                               // current global runtime floor
 }  // namespace orb::log
 #endif
@@ -85,7 +95,7 @@ void orb_log_hexdump(int level, int cat, const void *data, uint32_t len);
 extern "C" int orb_log_tusb_printf(const char *fmt, ...);
 
 // --- Macro API ---------------------------------------------------------------
-#define ORB_LOG_(lvl, cat, ...) orb_log_emit((lvl), (cat), __VA_ARGS__)
+#define ORB_LOG_(lvl, cat, ...) orb_log_emit((lvl), static_cast<int>(cat), __VA_ARGS__)
 
 #if ORB_LOG_LEVEL >= LOG_LEVEL_ERROR
 #define LOG_ERR(cat, ...) ORB_LOG_(LOG_LEVEL_ERROR, (cat), __VA_ARGS__)
@@ -123,6 +133,6 @@ extern "C" int orb_log_tusb_printf(const char *fmt, ...);
 #define LOG_HEXDUMP(cat, level, ptr, len)                       \
     do {                                                        \
         if ((level) <= ORB_LOG_LEVEL)                           \
-            orb_log_hexdump((level), (cat), (ptr), (len));      \
+            orb_log_hexdump((level), static_cast<int>(cat), (ptr), (len)); \
     } while (0)
 

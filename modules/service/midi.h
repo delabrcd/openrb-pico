@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-typedef enum {
+enum class midi_type_e : uint8_t {
     InvalidType = 0x00,                      ///< For notifying errors
     NoteOff = 0x80,                          ///< Channel Message - Note Off
     NoteOn = 0x90,                           ///< Channel Message - Note On
@@ -29,7 +29,7 @@ typedef enum {
     Undefined_FD = 0xFD,
     ActiveSensing = 0xFE,  ///< System Real Time - Active Sensing
     SystemReset = 0xFF,    ///< System Real Time - System Reset
-} midi_type_e;
+};
 
 // Plain C++ free functions (every consumer is a C++ TU); defined in midi.cpp.
 void serial_midi_init();

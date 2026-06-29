@@ -12,7 +12,12 @@
  * the wire union's buffer. */
 inline constexpr std::size_t XBOX_ONE_EP_MAXPKTSIZE = 64;
 
-enum frame_command_e {
+// WIRE/ABI enums: an explicit uint8_t underlying type pins their size to one byte (these
+// values index wire tables / are command bytes on the USB wire). The packed struct fields
+// (frame_t.command/type, the power/led data bytes) deliberately stay `uint8_t` to keep the
+// __attribute__((packed)) layout + the sizeof/offsetof static_asserts intact, so call sites
+// static_cast between the scoped enum and those byte fields.
+enum class frame_command_e : uint8_t {
     CMD_ACKNOWLEDGE = 0x01,
     CMD_ANNOUNCE = 0x02,
     CMD_STATUS = 0x03,
@@ -32,19 +37,19 @@ enum frame_command_e {
     CMD_AUDIO_SAMPLES = 0x60,
 };
 
-enum frame_type_e {
+enum class frame_type_e : uint8_t {
     TYPE_COMMAND = 0x00,
     TYPE_ACK = 0x01,
     TYPE_REQUEST = 0x02,
 };
 
-enum power_mode_e {
+enum class power_mode_e : uint8_t {
     POWER_ON = 0x00,
     POWER_SLEEP = 0x01,
     POWER_OFF = 0x04,
 };
 
-enum led_mode_e {
+enum class led_mode_e : uint8_t {
     LED_OFF = 0x00,
     LED_ON = 0x01,
     LED_BLINK_FAST = 0x02,
@@ -225,9 +230,11 @@ static_assert(offsetof(xbox_packet_t, length) == XBOX_ONE_EP_MAXPKTSIZE,
 // CMD_POWER_MODE request carrying a single power-mode byte (device_id 0, type REQUEST).
 // `length` is the wire payload size after the frame header == sizeof(data) == 1.
 static inline power_report_t make_power_report(uint8_t sequence, uint8_t data) {
-    power_report_t out = {.data = {.frame = {.command = CMD_POWER_MODE,
+    power_report_t out = {.data = {.frame = {.command = static_cast<uint8_t>(
+                                                     frame_command_e::CMD_POWER_MODE),
                                              .device_id = 0,
-                                             .type = TYPE_REQUEST,
+                                             .type = static_cast<uint8_t>(
+                                                     frame_type_e::TYPE_REQUEST),
                                              .sequence = sequence,
                                              .length = sizeof(out.data.data)},
                                    .data = data}};
@@ -243,9 +250,9 @@ static inline led_mode_command_t make_led_mode_command(uint8_t sequence, led_mod
     led_mode_command_t out = {
             .frame =
                     {
-                            .command = CMD_LED_MODE,
+                            .command = static_cast<uint8_t>(frame_command_e::CMD_LED_MODE),
                             .device_id = 0,
-                            .type = TYPE_REQUEST,
+                            .type = static_cast<uint8_t>(frame_type_e::TYPE_REQUEST),
                             .sequence = sequence,
                             .length = 3,
                     },

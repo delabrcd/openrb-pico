@@ -115,7 +115,8 @@ void xboxd_on_reset_cb() {
     set_auth_led(false);
 
     // TODO CDD - look into a better way of reinitializing the USB Host stack than a hard reset
-    if (orb::service::adapter().state() != STATE_INIT && orb::service::adapter().state() != STATE_NONE)
+    if (orb::service::adapter().state() != adapter_state_t::STATE_INIT &&
+        orb::service::adapter().state() != adapter_state_t::STATE_NONE)
         watchdog_reboot(0, 0, 10);
 }
 
@@ -148,19 +149,20 @@ void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
 }
 
 void handle_controller_packet_running(const xbox_packet_t *data) {
-    switch (data->frame.command) {
-        case CMD_ANNOUNCE:
+    switch (static_cast<frame_command_e>(data->frame.command)) {
+        case frame_command_e::CMD_ANNOUNCE:
             // Controller re-attached and is announcing -- it won't stream input until
             // the host re-inits it. Defer to the core1 loop (the init blocks on tx).
             orb::service::adapter().request_reinit();
             break;
 
-        case CMD_GUIDE_BTN:
+        case frame_command_e::CMD_GUIDE_BTN:
             xbox_fifo_write(data);
             break;
 
-        case CMD_INPUT:
-            fill_drum_input_from_controller(data, &host_out_packet, DRUMS);
+        case frame_command_e::CMD_INPUT:
+            fill_drum_input_from_controller(data, &host_out_packet,
+                                            static_cast<uint8_t>(instruments_e::DRUMS));
             xbox_fifo_write(&host_out_packet);
             break;
         default:
@@ -176,12 +178,12 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     g_host_rx_count++;                       // tick so recovery can detect a fresh heartbeat
     LOG_TRC(CAT_WIRE, "IN FROM CONTROLLER: %s", get_command_name(data->frame.command));
     switch (orb::service::adapter().state()) {
-        case STATE_AUTHENTICATING:
+        case adapter_state_t::STATE_AUTHENTICATING:
             xbox_fifo_write(data);
             break;
-        // case STATE_POWER_OFF:
+        // case adapter_state_t::STATE_POWER_OFF:
         //     break;
-        case STATE_RUNNING:
+        case adapter_state_t::STATE_RUNNING:
             handle_controller_packet_running(data);
             break;
         default:
@@ -197,12 +199,13 @@ void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t 
 }
 
 static void handle_auth(const xbox_packet_t *packet) {
-    if (packet->frame.command == CMD_AUTHENTICATE && packet->frame.length == 2 &&
+    if (packet->frame.command == static_cast<uint8_t>(frame_command_e::CMD_AUTHENTICATE) &&
+        packet->frame.length == 2 &&
         packet->buffer[3] == 2 && packet->buffer[4] == 1 && packet->buffer[5] == 0) {
         set_auth_led(true);
 
         LOG_INFO(CAT_DEV, "AUTHENTICATED!");
-        orb::service::adapter().set_state(STATE_RUNNING);
+        orb::service::adapter().set_state(adapter_state_t::STATE_RUNNING);
 
         notify_xbox_of_all_instruments(&out_packet);
     }
@@ -214,9 +217,9 @@ static void handle_auth(const xbox_packet_t *packet) {
 
 static void handle_identify(const xbox_packet_t *packet) {
     static uint8_t identify_sequence = 0;
-    switch (packet->frame.command) {
-        case CMD_IDENTIFY:
-        case CMD_ACKNOWLEDGE:
+    switch (static_cast<frame_command_e>(packet->frame.command)) {
+        case frame_command_e::CMD_IDENTIFY:
+        case frame_command_e::CMD_ACKNOWLEDGE:
             if (identify_sequence >= identifiers_get_n()) {
                 LOG_INFO(CAT_DEV, "Starting identify sequence over");
                 identify_sequence = 0;
@@ -225,9 +228,9 @@ static void handle_identify(const xbox_packet_t *packet) {
             xbox_fifo_write(&out_packet);
             identify_sequence++;
             break;
-        case CMD_AUTHENTICATE:
+        case frame_command_e::CMD_AUTHENTICATE:
             LOG_INFO(CAT_DEV, "Moving to Authenticate");
-            orb::service::adapter().set_state(STATE_AUTHENTICATING);
+            orb::service::adapter().set_state(adapter_state_t::STATE_AUTHENTICATING);
             return handle_auth(packet);
             break;
         default:
@@ -237,10 +240,10 @@ static void handle_identify(const xbox_packet_t *packet) {
 }
 
 static void handle_init(const xbox_packet_t *packet) {
-    switch (packet->frame.command) {
-        case CMD_IDENTIFY:
+    switch (static_cast<frame_command_e>(packet->frame.command)) {
+        case frame_command_e::CMD_IDENTIFY:
             LOG_INFO(CAT_DEV, "Moving to Identify");
-            orb::service::adapter().set_state(STATE_IDENTIFYING);
+            orb::service::adapter().set_state(adapter_state_t::STATE_IDENTIFYING);
             return handle_identify(packet);
         default:
             break;
@@ -248,21 +251,21 @@ static void handle_init(const xbox_packet_t *packet) {
 }
 
 static void handle_running(const xbox_packet_t *packet) {
-    switch (packet->frame.command) {
-        case CMD_POWER_MODE:
-            if (packet->power.data.data == POWER_OFF) {
-                orb::service::adapter().set_state(STATE_POWER_OFF);
+    switch (static_cast<frame_command_e>(packet->frame.command)) {
+        case frame_command_e::CMD_POWER_MODE:
+            if (packet->power.data.data == static_cast<uint8_t>(power_mode_e::POWER_OFF)) {
+                orb::service::adapter().set_state(adapter_state_t::STATE_POWER_OFF);
                 set_auth_led(false);
                 set_usb_host(false);
             }
             break;
-        case CMD_ACKNOWLEDGE:
+        case frame_command_e::CMD_ACKNOWLEDGE:
             xboxh_send(packet);
             break;
-        case CMD_LIST_CONNECTED_INSTRUMENTS:
+        case frame_command_e::CMD_LIST_CONNECTED_INSTRUMENTS:
             notify_xbox_of_all_instruments(&out_packet);
             break;
-        case CMD_LIST_INSTRUMENT:
+        case frame_command_e::CMD_LIST_INSTRUMENT:
             notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->buffer[4]), &out_packet);
             break;
         default:
@@ -273,15 +276,15 @@ static void handle_running(const xbox_packet_t *packet) {
 
 static void handle_xboxd_packet(const xbox_packet_t *packet) {
     switch (orb::service::adapter().state()) {
-        case STATE_NONE:
+        case adapter_state_t::STATE_NONE:
             return;
-        case STATE_INIT:
+        case adapter_state_t::STATE_INIT:
             return handle_init(packet);
-        case STATE_IDENTIFYING:
+        case adapter_state_t::STATE_IDENTIFYING:
             return handle_identify(packet);
-        case STATE_AUTHENTICATING:
+        case adapter_state_t::STATE_AUTHENTICATING:
             return handle_auth(packet);
-        case STATE_RUNNING:
+        case adapter_state_t::STATE_RUNNING:
             return handle_running(packet);
         default:
             break;
@@ -298,7 +301,7 @@ bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf, uint32_t
 }
 
 static void announce_task() {
-    if (orb::service::adapter().state() != STATE_INIT) return;
+    if (orb::service::adapter().state() != adapter_state_t::STATE_INIT) return;
 
     static unsigned long last_announce_time = 0;
     if ((board_millis() - last_announce_time) > orb::service::announce_interval_ms) {
@@ -524,7 +527,7 @@ static void recovery_reboot_task(void) {
     // reboot if that runtime recovery exhausts its attempts.
     if (g_runtime_recovery_engaged) { silent_since_ms = 0; return; }
 
-    if (orb::service::adapter().state() >= STATE_RUNNING) {  // authenticated -> controller now optional
+    if (orb::service::adapter().state() >= adapter_state_t::STATE_RUNNING) {  // authenticated -> controller now optional
         disarmed = true;
         watchdog_hw->scratch[RECOV_SCRATCH] = 0;  // clear so the next reset starts fresh
         if (g_recov_count) LOG_WARN(CAT_RECOV, "RECOVERY: authenticated after %lu reboot(s)",
@@ -622,7 +625,7 @@ static void init() {
 
     memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
 
-    orb::service::adapter().set_state(STATE_INIT);
+    orb::service::adapter().set_state(adapter_state_t::STATE_INIT);
     LOG_INFO(CAT_SYS, "finished init, starting main process...");
 }
 

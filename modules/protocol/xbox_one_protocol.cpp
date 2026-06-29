@@ -79,7 +79,7 @@ void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t
                                        std::uint8_t player_id) {
     init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
 
-    wla_output->frame.command = CMD_INPUT;
+    wla_output->frame.command = static_cast<uint8_t>(frame_command_e::CMD_INPUT);
     wla_output->frame.device_id = 0;
     wla_output->frame.type = 0;
     wla_output->frame.length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
@@ -158,7 +158,7 @@ struct magic_enum::customize::enum_range<frame_command_e> {
 //   - unknown / out-of-range commands rendered "Unknown CMD" (magic_enum yields "")
 // magic_enum's names are null-terminated, so .data() is a valid C string for the %s seam.
 const char *get_command_name(int cmd) {
-    if (cmd == CMD_ACKNOWLEDGE) return "CMD_ACK";
+    if (cmd == static_cast<int>(frame_command_e::CMD_ACKNOWLEDGE)) return "CMD_ACK";
     const std::string_view name = orb::enum_name(static_cast<frame_command_e>(cmd));
     return name.empty() ? "Unknown CMD" : name.data();
 }

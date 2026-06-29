@@ -2,14 +2,14 @@
 
 #include <cstdint>
 
-typedef enum adapter_state_e {
+enum class adapter_state_t : std::uint8_t {
     STATE_NONE,
     STATE_INIT,
     STATE_IDENTIFYING,
     STATE_AUTHENTICATING,
     STATE_RUNNING,
     STATE_POWER_OFF,
-} adapter_state_t;
+};
 
 // Runtime tunables (BUCKET A): plain object-like values, never used in `#if`, so they
 // become typed constexpr -- no preprocessor needed. All consumers are C++.

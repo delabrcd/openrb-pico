@@ -37,7 +37,7 @@ class AdapterState {
     static constexpr uint32_t kNone = UINT32_MAX;
 
     void reset() {  // set state=STATE_NONE, no controller, flags false
-        state_.store(STATE_NONE, kRlx);
+        state_.store(adapter_state_t::STATE_NONE, kRlx);
         controller_.store(kNone, kRlx);
         alive_.store(false, kRlx);
         seen_.store(false, kRlx);
@@ -83,7 +83,7 @@ class AdapterState {
    private:
     static constexpr std::memory_order kRlx = std::memory_order_relaxed;
 
-    std::atomic<adapter_state_t> state_{STATE_NONE};  // written core0, read both
+    std::atomic<adapter_state_t> state_{adapter_state_t::STATE_NONE};  // written core0, read both
     std::atomic<uint32_t> controller_{kNone};         // written core1, read both
     std::atomic<bool> alive_{false};                  // written core1, read core0
     std::atomic<bool> seen_{false};                   // written core1, read core0

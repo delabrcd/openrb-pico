@@ -133,9 +133,10 @@ void __not_in_flash_func(update_drum_state_with_midi_input)(Output out, std::uin
 }
 
 inline midi_type_e get_type_from_status(std::uint8_t status) {
-    if ((status < 0x80) || (status == Undefined_F4) || (status == Undefined_F5) ||
-        (status == Undefined_FD))
-        return InvalidType;  // Data bytes and undefined.
+    if ((status < 0x80) || (status == static_cast<std::uint8_t>(midi_type_e::Undefined_F4)) ||
+        (status == static_cast<std::uint8_t>(midi_type_e::Undefined_F5)) ||
+        (status == static_cast<std::uint8_t>(midi_type_e::Undefined_FD)))
+        return midi_type_e::InvalidType;  // Data bytes and undefined.
 
     if (status < 0xf0)
         // Channel message, remove channel nibble.
@@ -171,13 +172,13 @@ constexpr xbox_packet_t kInitialDrumPacket = {
         {
             .frame =
                 {
-                    .command = CMD_INPUT,
-                    .device_id = TYPE_COMMAND,
-                    .type = TYPE_COMMAND,
+                    .command = static_cast<std::uint8_t>(frame_command_e::CMD_INPUT),
+                    .device_id = static_cast<std::uint8_t>(frame_type_e::TYPE_COMMAND),
+                    .type = static_cast<std::uint8_t>(frame_type_e::TYPE_COMMAND),
                     .sequence = 0,
                     .length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t),
                 },
-            .playerId = DRUMS,
+            .playerId = static_cast<std::uint8_t>(instruments_e::DRUMS),
             .unknown = 0x01,
         },
 };
@@ -187,7 +188,7 @@ class DrumEngine {
    public:
     // --- core0: drum_task body --------------------------------------------------------
     void __not_in_flash_func(tick)() {
-        if (orb::service::adapter().state() != STATE_RUNNING) return;
+        if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
 
         static std::uint8_t pending_msg[48];
         static midi_type_e type;
@@ -196,18 +197,18 @@ class DrumEngine {
         midi_note_t n;
         while (midi_note_recv(&n)) {
             type = get_type_from_status(n.data[0]);
-            if (type == NoteOn) note_on(n.data[1], n.data[2]);
+            if (type == midi_type_e::NoteOn) note_on(n.data[1], n.data[2]);
 #if ORB_HIHAT_MODE >= 1
-            else if (type == ControlChange)
+            else if (type == midi_type_e::ControlChange)
                 control_change(n.data[1], n.data[2]);
 #endif
         }
 
         while (serial_midi_read(pending_msg)) {
             type = get_type_from_status(pending_msg[0]);
-            if (type == NoteOn) note_on(pending_msg[1], pending_msg[2]);
+            if (type == midi_type_e::NoteOn) note_on(pending_msg[1], pending_msg[2]);
 #if ORB_HIHAT_MODE >= 1
-            else if (type == ControlChange)
+            else if (type == midi_type_e::ControlChange)
                 control_change(pending_msg[1], pending_msg[2]);
 #endif
         }

@@ -17,7 +17,7 @@
 #include "instrument_manager.h"
 
 static int count = 0;
-static uint8_t note_on_message[3] = {NoteOn, 0, 0};
+static uint8_t note_on_message[3] = {static_cast<uint8_t>(midi_type_e::NoteOn), 0, 0};
 // orb::osal::Timer owns the StaticTimer_t control block (BSS, trivial ctor) and the handle,
 // replacing the old raw TimerHandle_t + StaticTimer_t + xTimerCreateStatic plumbing.
 static orb::osal::Timer s_disconnect_timer;
@@ -31,15 +31,16 @@ static bool drums_sending_active_sense = false;
 static xbox_packet_t out_packet;
 
 static inline midi_type_e get_type_from_status(uint8_t status) {
-    if ((status < 0x80) || (status == Undefined_F4) || (status == Undefined_F5) ||
-        (status == Undefined_FD))
-        return InvalidType;  // Data bytes and undefined.
+    if ((status < 0x80) || (status == static_cast<uint8_t>(midi_type_e::Undefined_F4)) ||
+        (status == static_cast<uint8_t>(midi_type_e::Undefined_F5)) ||
+        (status == static_cast<uint8_t>(midi_type_e::Undefined_FD)))
+        return midi_type_e::InvalidType;  // Data bytes and undefined.
 
     if (status < 0xf0)
         // Channel message, remove channel nibble.
-        return (midi_type_e)(status & 0xf0);
+        return static_cast<midi_type_e>(status & 0xf0);
 
-    return (midi_type_e)status;
+    return static_cast<midi_type_e>(status);
 }
 
 // Timer-service-task callback (kernel-called, C-linkage symbol). Stays a free
@@ -91,21 +92,21 @@ int __not_in_flash_func(serial_midi_read)(uint8_t* buf) {
             // Treat it exactly like NoteOn: valid status byte, collect 2 data
             // bytes, return the raw 3-byte message; a CC also counts as "drums
             // connected" (status_byte path below), so the disconnect timer behaves.
-            case ControlChange:
+            case midi_type_e::ControlChange:
 #endif
-            case NoteOn:
+            case midi_type_e::NoteOn:
                 status_byte = true;
                 note_on_message[0] = data;
                 count = 1;
                 break;
-            case InvalidType:
+            case midi_type_e::InvalidType:
                 // data
                 if (count) {
                     note_on_message[count] = data;
                     count++;
                 }
                 break;
-            case ActiveSensing:
+            case midi_type_e::ActiveSensing:
                 drums_sending_active_sense = true;
                 // fallthrough
             default:

@@ -43,8 +43,11 @@ constexpr std::size_t kLineMax = 192u;
 // land in .data/.bss with no global constructor.
 constinit std::atomic<uint8_t> g_log_level{ORB_LOG_LEVEL};
 
-static_assert(CAT_COUNT == 9, "update g_cat_level initializer to match CAT_COUNT");
-constinit std::array<std::atomic<uint8_t>, CAT_COUNT> g_cat_level{
+// Category count as a size_t, derived from the scoped enum so the level table + name
+// tables stay sized to OrbCat::CAT_COUNT.
+constexpr std::size_t kCatCount = static_cast<std::size_t>(OrbCat::CAT_COUNT);
+static_assert(kCatCount == 9, "update g_cat_level initializer to match CAT_COUNT");
+constinit std::array<std::atomic<uint8_t>, kCatCount> g_cat_level{
     {{ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL},
      {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}, {ORB_LOG_LEVEL}}};
 
@@ -61,7 +64,7 @@ constexpr std::array<const char*, 6> kLevelName{
     "TRACE",  // 5 TRACE
 };
 
-constexpr std::array<const char*, CAT_COUNT> kCatName{
+constexpr std::array<const char*, kCatCount> kCatName{
     "SYS", "HOST", "DEV", "DRUM", "MIDI", "RECOV", "USBLOG", "TUSB", "WIRE",
 };
 
@@ -80,7 +83,7 @@ constexpr std::array<const char*, 6> kLevelColor{
 // Runtime gate: one array load + compare. cat clamped so a bad enum can't index out
 // of bounds.
 inline bool admit(int level, int cat) {
-    if (static_cast<unsigned>(cat) >= CAT_COUNT)
+    if (static_cast<std::size_t>(static_cast<unsigned>(cat)) >= kCatCount)
         return level <= static_cast<int>(g_log_level.load(std::memory_order_relaxed));
     return level <= static_cast<int>(load_cat(cat));
 }
@@ -93,7 +96,8 @@ void emit_v(int level, int cat, const char* fmt, va_list ap) {
     const uint32_t core = sio_hw->cpuid & 1u;
 
     if (!admit(level, cat)) return;
-    if (static_cast<unsigned>(cat) >= CAT_COUNT) cat = CAT_SYS;
+    if (static_cast<std::size_t>(static_cast<unsigned>(cat)) >= kCatCount)
+        cat = static_cast<int>(OrbCat::CAT_SYS);
     if (level < LOG_LEVEL_ERROR) level = LOG_LEVEL_ERROR;
     if (level > LOG_LEVEL_TRACE) level = LOG_LEVEL_TRACE;
 
@@ -169,11 +173,12 @@ void set_level(int level) {
     for (auto& cat : g_cat_level) cat.store(static_cast<uint8_t>(level), std::memory_order_relaxed);
 }
 
-void set_cat_level(orb_cat_t cat, int level) {
-    if (static_cast<unsigned>(cat) >= CAT_COUNT) return;
+void set_cat_level(OrbCat cat, int level) {
+    if (static_cast<std::size_t>(cat) >= kCatCount) return;
     if (level < 0) level = 0;
     if (level > LOG_LEVEL_TRACE) level = LOG_LEVEL_TRACE;
-    g_cat_level[cat].store(static_cast<uint8_t>(level), std::memory_order_relaxed);
+    g_cat_level[static_cast<std::size_t>(cat)].store(static_cast<uint8_t>(level),
+                                                     std::memory_order_relaxed);
 }
 
 int get_level() { return static_cast<int>(g_log_level.load(std::memory_order_relaxed)); }
@@ -184,7 +189,7 @@ int get_level() { return static_cast<int>(g_log_level.load(std::memory_order_rel
 // inside namespace orb::log -- with C language linkage the namespace is irrelevant to the
 // symbol, so this matches the global header declaration while reaching the internal state.
 extern "C" int orb_log_tusb_printf(const char* fmt, ...) {
-    if (LOG_LEVEL_DEBUG > static_cast<int>(load_cat(CAT_TUSB))) return 0;
+    if (LOG_LEVEL_DEBUG > static_cast<int>(load_cat(static_cast<int>(OrbCat::CAT_TUSB)))) return 0;
     char tmp[160];
     va_list ap;
     va_start(ap, fmt);

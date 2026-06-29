@@ -52,7 +52,7 @@
 namespace orb::service {
 namespace {
 
-constexpr std::size_t kInstrumentCount = N_INSTRUMENTS;
+constexpr std::size_t kInstrumentCount = static_cast<std::size_t>(N_INSTRUMENTS);
 
 // Enum value -> contiguous array index (FIRST_INSTRUMENT == 0).
 constexpr std::size_t idx(instruments_e instrument) {
@@ -103,12 +103,12 @@ class InstrumentManager {
 
     void notify_single(instruments_e instrument, xbox_packet_t *scratch) {
         if (instrument < N_INSTRUMENTS) {
-            LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s", instrument,
-                    instrument_name(instrument));
+            LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s",
+                    static_cast<int>(instrument), instrument_name(instrument));
             build_packet(scratch, instrument, /*connect=*/true);
             xbox_fifo_write(scratch);
         } else {
-            LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d", instrument);
+            LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d", static_cast<int>(instrument));
         }
     }
 
@@ -116,7 +116,7 @@ class InstrumentManager {
         if (!claim(instrument, /*want=*/true)) return;  // atomic not-connected -> connected
         LOG_INFO(CAT_DEV, "%s connected!", instrument_name(instrument));
 
-        if (orb::service::adapter().state() != STATE_RUNNING) return;
+        if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
 
         build_packet(scratch, instrument, /*connect=*/true);
         xbox_fifo_write(scratch);
@@ -126,7 +126,7 @@ class InstrumentManager {
         if (!claim(instrument, /*want=*/false)) return;  // atomic connected -> not-connected
         LOG_INFO(CAT_DEV, "%s disconnected!", instrument_name(instrument));
 
-        if (orb::service::adapter().state() != STATE_RUNNING) return;
+        if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
 
         build_packet(scratch, instrument, /*connect=*/false);
         xbox_fifo_write(scratch);
