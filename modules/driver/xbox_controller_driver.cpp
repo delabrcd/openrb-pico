@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <ranges>
+#include <utility>  // std::to_underlying
 
 #include "common/tusb_verify.h"
 #include "host/usbh.h"
@@ -175,7 +176,7 @@ bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.data = static_cast<uint8_t>(power_mode_e::POWER_OFF);
+    out.data.data = std::to_underlying(power_mode_e::POWER_OFF);
     out.data.frame.sequence = get_sequence();
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
@@ -191,7 +192,7 @@ bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.data = static_cast<uint8_t>(power_mode_e::POWER_SLEEP);
+    out.data.data = std::to_underlying(power_mode_e::POWER_SLEEP);
     out.data.frame.sequence = get_sequence();
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
@@ -208,7 +209,7 @@ constexpr std::array<uint8_t, 5> xboxone_s_init{0x05, 0x20, 0x00, 0x0f, 0x06};
 bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
     if (p_itf->daddr == 0) return false;
     if (p_itf->is_powered) return false;
-    const power_report_t power_on = make_power_report(0, static_cast<uint8_t>(power_mode_e::POWER_ON));
+    const power_report_t power_on = make_power_report(0, std::to_underlying(power_mode_e::POWER_ON));
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
@@ -219,7 +220,7 @@ bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
     }
 
     led_mode_command_t out =
-            make_led_mode_command(get_sequence(), static_cast<uint8_t>(led_mode_e::LED_ON), 0x14);
+            make_led_mode_command(get_sequence(), led_mode_e::LED_ON, 0x14);
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);

@@ -18,7 +18,7 @@ enum class instruments_e : std::uint8_t {
 
 // The enumerators are used bare throughout the instrument API (DRUMS, GUITAR_ONE, ...),
 // so import them to global scope; call sites keep their spelling. Conversions to an
-// index / player-id byte / printf arg still static_cast explicitly at the boundary.
+// index / player-id byte / printf arg use std::to_underlying at the boundary.
 using enum instruments_e;
 
 // Plain C++ free functions (every consumer is a C++ TU); defined in instrument_manager.cpp.

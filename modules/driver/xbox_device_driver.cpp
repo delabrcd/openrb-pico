@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <utility>  // std::to_underlying
 
 #include "class/hid/hid.h"
 #include "common/tusb_common.h"
@@ -72,7 +73,7 @@ bool tud_xinput_n_ready(uint8_t itf) {
 bool xboxd_send(xbox_packet_t *packet) {
     if (!_xinputd_itf[0].ep_in) return false;
 
-    LOG_TRC(CAT_WIRE, "sending %s size: %d", get_command_name(packet->frame.command),
+    LOG_TRC(CAT_WIRE, "sending %s size: %d", get_command_name(std::to_underlying(packet->frame.command)),
             packet->length);
 
     return _xboxd_send(0, packet->buffer, packet->length);
@@ -89,7 +90,7 @@ bool xboxd_send_task() {
     TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
 
     if (!xboxd_send(pkt)) {
-        LOG_ERR(CAT_DEV, "FAILED TO SEND %s", get_command_name(pkt->frame.command));
+        LOG_ERR(CAT_DEV, "FAILED TO SEND %s", get_command_name(std::to_underlying(pkt->frame.command)));
         usbd_edpt_release(0, _xinputd_itf[0].ep_in);
     }
     return true;
@@ -251,7 +252,7 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
     if (p_xinput == nullptr) return false;
 
     if (ep_addr == p_xinput->ep_out) {
-        LOG_TRC(CAT_WIRE, "IN (%s)", get_command_name(p_xinput->epout_buf.frame.command));
+        LOG_TRC(CAT_WIRE, "IN (%s)", get_command_name(std::to_underlying(p_xinput->epout_buf.frame.command)));
         LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epout_buf.buffer, xferred_bytes);
 
         p_xinput->epout_buf.length = xferred_bytes;
@@ -261,7 +262,7 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
                                  sizeof(p_xinput->epout_buf.buffer)));
 
     } else if (ep_addr == p_xinput->ep_in) {
-        LOG_TRC(CAT_WIRE, "OUT (%s)", get_command_name(p_xinput->epin_buf.frame.command));
+        LOG_TRC(CAT_WIRE, "OUT (%s)", get_command_name(std::to_underlying(p_xinput->epin_buf.frame.command)));
         LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epin_buf.buffer, xferred_bytes);
         p_xinput->epin_buf.handled = 1;
     }

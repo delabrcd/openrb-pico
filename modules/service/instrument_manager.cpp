@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <utility>  // std::to_underlying
 
 #include "adapter.h"
 #include "adapter_ctx.h"
@@ -52,11 +53,11 @@
 namespace orb::service {
 namespace {
 
-constexpr std::size_t kInstrumentCount = static_cast<std::size_t>(N_INSTRUMENTS);
+constexpr std::size_t kInstrumentCount = std::to_underlying(N_INSTRUMENTS);
 
 // Enum value -> contiguous array index (FIRST_INSTRUMENT == 0).
 constexpr std::size_t idx(instruments_e instrument) {
-    return static_cast<std::size_t>(instrument);
+    return std::to_underlying(instrument);
 }
 
 #if OPENRB_DEBUG_ENABLED
@@ -104,11 +105,11 @@ class InstrumentManager {
     void notify_single(instruments_e instrument, xbox_packet_t *scratch) {
         if (instrument < N_INSTRUMENTS) {
             LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s",
-                    static_cast<int>(instrument), instrument_name(instrument));
+                    std::to_underlying(instrument), instrument_name(instrument));
             build_packet(scratch, instrument, /*connect=*/true);
             xbox_fifo_write(scratch);
         } else {
-            LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d", static_cast<int>(instrument));
+            LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d", std::to_underlying(instrument));
         }
     }
 

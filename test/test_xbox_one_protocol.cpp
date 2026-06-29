@@ -104,8 +104,8 @@ TEST_CASE("make_power_report golden bytes") {
     check_bytes(pr.buffer, golden.data(), golden.size());
 
     // Field-level cross-check.
-    CHECK(pr.data.frame.command == static_cast<uint8_t>(frame_command_e::CMD_POWER_MODE));
-    CHECK(pr.data.frame.type == static_cast<uint8_t>(frame_type_e::TYPE_REQUEST));
+    CHECK(pr.data.frame.command == frame_command_e::CMD_POWER_MODE);
+    CHECK(pr.data.frame.type == frame_type_e::TYPE_REQUEST);
     CHECK(pr.data.frame.device_id == 0);
     CHECK(pr.data.frame.sequence == 0x42);
     CHECK(pr.data.frame.length == 1);
@@ -118,18 +118,18 @@ TEST_CASE("make_power_report golden bytes") {
 TEST_CASE("make_led_mode_command golden bytes") {
     // CMD_LED_MODE=0x0a, byte1=0x20, length=3, unknown=0, mode, brightness.
     led_mode_command_t led = make_led_mode_command(
-            /*sequence=*/0x07, /*mode=*/static_cast<uint8_t>(led_mode_e::LED_ON) /*0x01*/,
+            /*sequence=*/0x07, /*mode=*/led_mode_e::LED_ON /*0x01*/,
             /*brightness=*/0x14);
 
     const std::array<uint8_t, 7> golden = {0x0a, 0x20, 0x07, 0x03, 0x00, 0x01, 0x14};
     auto* bytes = reinterpret_cast<const uint8_t*>(&led);
     check_bytes(bytes, golden.data(), golden.size());
 
-    CHECK(led.frame.command == static_cast<uint8_t>(frame_command_e::CMD_LED_MODE));
-    CHECK(led.frame.type == static_cast<uint8_t>(frame_type_e::TYPE_REQUEST));
+    CHECK(led.frame.command == frame_command_e::CMD_LED_MODE);
+    CHECK(led.frame.type == frame_type_e::TYPE_REQUEST);
     CHECK(led.frame.length == 3);
     CHECK(led.unknown == 0);
-    CHECK(led.mode == static_cast<uint8_t>(led_mode_e::LED_ON));
+    CHECK(led.mode == led_mode_e::LED_ON);
     CHECK(led.brightness == 0x14);
 }
 
@@ -139,7 +139,7 @@ TEST_CASE("make_led_mode_command golden bytes") {
 TEST_CASE("fill_drum_input_from_controller golden bytes") {
     // Build a known controller-input source packet by field name.
     xbox_packet_t in{};
-    in.controller_input.frame.command = static_cast<uint8_t>(frame_command_e::CMD_INPUT);  // 0x20
+    in.controller_input.frame.command = frame_command_e::CMD_INPUT;  // 0x20
     in.controller_input.frame.device_id = 0;
     in.controller_input.buttons.start = 1;
     in.controller_input.buttons.select = 1;

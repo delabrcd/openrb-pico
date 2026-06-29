@@ -30,6 +30,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <utility>  // std::to_underlying
 
 #include "adapter.h"
 #include "adapter_ctx.h"
@@ -71,7 +72,7 @@ enum class Output : std::uint8_t {
 };
 
 // Enum value -> contiguous array index.
-constexpr std::size_t idx(Output o) { return static_cast<std::size_t>(o); }
+constexpr std::size_t idx(Output o) { return std::to_underlying(o); }
 
 constexpr std::size_t kNumOut = idx(Output::NUM_OUT);
 
@@ -133,9 +134,9 @@ void __not_in_flash_func(update_drum_state_with_midi_input)(Output out, std::uin
 }
 
 inline midi_type_e get_type_from_status(std::uint8_t status) {
-    if ((status < 0x80) || (status == static_cast<std::uint8_t>(midi_type_e::Undefined_F4)) ||
-        (status == static_cast<std::uint8_t>(midi_type_e::Undefined_F5)) ||
-        (status == static_cast<std::uint8_t>(midi_type_e::Undefined_FD)))
+    if ((status < 0x80) || (status == std::to_underlying(midi_type_e::Undefined_F4)) ||
+        (status == std::to_underlying(midi_type_e::Undefined_F5)) ||
+        (status == std::to_underlying(midi_type_e::Undefined_FD)))
         return midi_type_e::InvalidType;  // Data bytes and undefined.
 
     if (status < 0xf0)
@@ -172,13 +173,13 @@ constexpr xbox_packet_t kInitialDrumPacket = {
         {
             .frame =
                 {
-                    .command = static_cast<std::uint8_t>(frame_command_e::CMD_INPUT),
-                    .device_id = static_cast<std::uint8_t>(frame_type_e::TYPE_COMMAND),
-                    .type = static_cast<std::uint8_t>(frame_type_e::TYPE_COMMAND),
+                    .command = frame_command_e::CMD_INPUT,
+                    .device_id = std::to_underlying(frame_type_e::TYPE_COMMAND),
+                    .type = frame_type_e::TYPE_COMMAND,
                     .sequence = 0,
                     .length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t),
                 },
-            .playerId = static_cast<std::uint8_t>(instruments_e::DRUMS),
+            .playerId = std::to_underlying(instruments_e::DRUMS),
             .unknown = 0x01,
         },
 };
@@ -220,7 +221,7 @@ class DrumEngine {
 
             std::uint32_t time_since_trigger = current_time - st.triggered_at;
             if (time_since_trigger > trigger_hold_ms) {
-                LOG_DBG(CAT_DRUM, "NOTE OFF: %d", static_cast<int>(out));
+                LOG_DBG(CAT_DRUM, "NOTE OFF: %d", std::to_underlying(out));
                 update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input);
                 st.triggered = false;
                 changed_ = true;
@@ -299,7 +300,7 @@ class DrumEngine {
         update_drum_state_with_midi_input(out, 1, &input_pkt_.drum_input);
         changed_ = true;
 
-        LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", static_cast<int>(out), velocity);
+        LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", std::to_underlying(out), velocity);
 
         midi_output_states_[idx(out)].triggered = true;
         midi_output_states_[idx(out)].triggered_at = board_millis();

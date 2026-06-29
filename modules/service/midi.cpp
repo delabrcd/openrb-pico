@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <utility>  // std::to_underlying
+
 #include "FreeRTOS.h"
 #include "hardware/gpio.h"
 #include "hardware/timer.h"
@@ -17,7 +19,7 @@
 #include "instrument_manager.h"
 
 static int count = 0;
-static uint8_t note_on_message[3] = {static_cast<uint8_t>(midi_type_e::NoteOn), 0, 0};
+static uint8_t note_on_message[3] = {std::to_underlying(midi_type_e::NoteOn), 0, 0};
 // orb::osal::Timer owns the StaticTimer_t control block (BSS, trivial ctor) and the handle,
 // replacing the old raw TimerHandle_t + StaticTimer_t + xTimerCreateStatic plumbing.
 static orb::osal::Timer s_disconnect_timer;
@@ -31,9 +33,9 @@ static bool drums_sending_active_sense = false;
 static xbox_packet_t out_packet;
 
 static inline midi_type_e get_type_from_status(uint8_t status) {
-    if ((status < 0x80) || (status == static_cast<uint8_t>(midi_type_e::Undefined_F4)) ||
-        (status == static_cast<uint8_t>(midi_type_e::Undefined_F5)) ||
-        (status == static_cast<uint8_t>(midi_type_e::Undefined_FD)))
+    if ((status < 0x80) || (status == std::to_underlying(midi_type_e::Undefined_F4)) ||
+        (status == std::to_underlying(midi_type_e::Undefined_F5)) ||
+        (status == std::to_underlying(midi_type_e::Undefined_FD)))
         return midi_type_e::InvalidType;  // Data bytes and undefined.
 
     if (status < 0xf0)

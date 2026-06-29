@@ -13,10 +13,13 @@
 inline constexpr std::size_t XBOX_ONE_EP_MAXPKTSIZE = 64;
 
 // WIRE/ABI enums: an explicit uint8_t underlying type pins their size to one byte (these
-// values index wire tables / are command bytes on the USB wire). The packed struct fields
-// (frame_t.command/type, the power/led data bytes) deliberately stay `uint8_t` to keep the
-// __attribute__((packed)) layout + the sizeof/offsetof static_asserts intact, so call sites
-// static_cast between the scoped enum and those byte fields.
+// values index wire tables / are command bytes on the USB wire). Because each enum is
+// exactly one byte, the packed-struct fields that carry one of these enums are typed with
+// the enum directly (frame_t.command / frame_t.type, led_mode_command_t.mode): the field
+// occupies the same single byte, so the __attribute__((packed)) layout + every
+// sizeof/offsetof static_assert below stay valid, while comparisons/switches/assignments at
+// call sites are strongly typed and need no cast. Genuine raw-byte <-> enum conversions
+// (e.g. extracting a wire byte into an enum) use static_cast / std::to_underlying explicitly.
 enum class frame_command_e : uint8_t {
     CMD_ACKNOWLEDGE = 0x01,
     CMD_ANNOUNCE = 0x02,
@@ -59,12 +62,10 @@ enum class led_mode_e : uint8_t {
     LED_FADE_FAST = 0x09,
 };
 
-typedef uint8_t led_mode_t;
-
 typedef struct {
-    uint8_t command;
+    frame_command_e command;
     uint8_t device_id : 4;
-    uint8_t type : 4;
+    frame_type_e type : 4;
     uint8_t sequence;
     uint8_t length;
 } __attribute__((packed)) frame_t;
@@ -81,7 +82,7 @@ typedef union {
 typedef struct {
     frame_t frame;
     uint8_t unknown;
-    led_mode_t mode;
+    led_mode_e mode;
     uint8_t brightness;
 } __attribute__((packed)) led_mode_command_t;
 
@@ -230,11 +231,9 @@ static_assert(offsetof(xbox_packet_t, length) == XBOX_ONE_EP_MAXPKTSIZE,
 // CMD_POWER_MODE request carrying a single power-mode byte (device_id 0, type REQUEST).
 // `length` is the wire payload size after the frame header == sizeof(data) == 1.
 static inline power_report_t make_power_report(uint8_t sequence, uint8_t data) {
-    power_report_t out = {.data = {.frame = {.command = static_cast<uint8_t>(
-                                                     frame_command_e::CMD_POWER_MODE),
+    power_report_t out = {.data = {.frame = {.command = frame_command_e::CMD_POWER_MODE,
                                              .device_id = 0,
-                                             .type = static_cast<uint8_t>(
-                                                     frame_type_e::TYPE_REQUEST),
+                                             .type = frame_type_e::TYPE_REQUEST,
                                              .sequence = sequence,
                                              .length = sizeof(out.data.data)},
                                    .data = data}};
@@ -245,14 +244,14 @@ static inline power_report_t make_power_report(uint8_t sequence, uint8_t data) {
 // (zero-initialized); we set it to 0 explicitly so the initializer is complete and in
 // declaration order (required when this header is included by C++ TUs). Byte-identical to
 // the original. `length` is the fixed 3-byte payload (unknown + mode + brightness).
-static inline led_mode_command_t make_led_mode_command(uint8_t sequence, led_mode_t mode,
+static inline led_mode_command_t make_led_mode_command(uint8_t sequence, led_mode_e mode,
                                                        uint8_t brightness) {
     led_mode_command_t out = {
             .frame =
                     {
-                            .command = static_cast<uint8_t>(frame_command_e::CMD_LED_MODE),
+                            .command = frame_command_e::CMD_LED_MODE,
                             .device_id = 0,
-                            .type = static_cast<uint8_t>(frame_type_e::TYPE_REQUEST),
+                            .type = frame_type_e::TYPE_REQUEST,
                             .sequence = sequence,
                             .length = 3,
                     },

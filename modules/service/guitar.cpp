@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <utility>  // std::to_underlying
 
 // clang-format off
 #include "tusb.h" // IWYU pragma: export
@@ -71,7 +72,7 @@ class Guitar {
 
     void on_report(std::span<const std::uint8_t> report) {
         fill_guitar_input_from_hid_report(report.data(), &out_packet_,
-                                          static_cast<std::uint8_t>(player_));
+                                          std::to_underlying(player_));
         xbox_fifo_write(&out_packet_);
     }
 

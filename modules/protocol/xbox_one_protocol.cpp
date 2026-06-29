@@ -79,9 +79,9 @@ void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t
                                        std::uint8_t player_id) {
     init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
 
-    wla_output->frame.command = static_cast<uint8_t>(frame_command_e::CMD_INPUT);
+    wla_output->frame.command = frame_command_e::CMD_INPUT;
     wla_output->frame.device_id = 0;
-    wla_output->frame.type = 0;
+    wla_output->frame.type = frame_type_e::TYPE_COMMAND;
     wla_output->frame.length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
     wla_output->wla_header.playerId = player_id;
 
@@ -119,7 +119,7 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
     wla_output->length = sizeof(xb_one_drum_input_pkt_t);
     wla_output->frame.command = controller_input->frame.command;
     wla_output->frame.device_id = controller_input->frame.device_id;
-    wla_output->frame.type = controller_input->frame.device_id;
+    wla_output->frame.type = static_cast<frame_type_e>(controller_input->frame.device_id);
     wla_output->frame.sequence = get_sequence();
     wla_output->frame.length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t);
 
@@ -157,6 +157,9 @@ struct magic_enum::customize::enum_range<frame_command_e> {
 //   - CMD_ACKNOWLEDGE was abbreviated "CMD_ACK" (not "CMD_ACKNOWLEDGE")
 //   - unknown / out-of-range commands rendered "Unknown CMD" (magic_enum yields "")
 // magic_enum's names are null-terminated, so .data() is a valid C string for the %s seam.
+// Takes the raw command byte (int) rather than frame_command_e on purpose: it is a
+// debug-only trace helper, and keeping the int parameter leaves its codegen byte-identical
+// to the pre-typing baseline. Callers pass std::to_underlying(frame.command) at the boundary.
 const char *get_command_name(int cmd) {
     if (cmd == static_cast<int>(frame_command_e::CMD_ACKNOWLEDGE)) return "CMD_ACK";
     const std::string_view name = orb::enum_name(static_cast<frame_command_e>(cmd));
