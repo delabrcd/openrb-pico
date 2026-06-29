@@ -30,13 +30,21 @@ endif()
 add_executable(protocol_tests
   ${CMAKE_CURRENT_SOURCE_DIR}/test_xbox_one_protocol.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/host_stubs/host_stubs.cpp
-  ${REPO_ROOT}/src/xbox_one_protocol.cpp
+  ${REPO_ROOT}/modules/protocol/xbox_one_protocol.cpp
 )
 
+# The protocol TU now lives in modules/protocol/ and pulls headers from the protocol/log/
+# core layers (flat includes), so put each of those module dirs on the host include path.
+# magic_enum is needed because OPENRB_DEBUG_ENABLED defaults to 1 (debug logging compiled
+# in), so modules/log/orb_enum.hpp pulls <magic_enum/magic_enum.hpp>.
 target_include_directories(protocol_tests PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/host_stubs   # bsp/board_api.h stub -- MUST resolve first
-  ${REPO_ROOT}/inc                         # real portable headers (protocol/log/c-api)
-  ${DOCTEST_DIR}                            # #include "doctest/doctest.h"
+  ${CMAKE_CURRENT_SOURCE_DIR}/host_stubs       # bsp/board_api.h stub -- MUST resolve first
+  ${REPO_ROOT}/modules                         # layer-prefixed includes (core/..., osal/...)
+  ${REPO_ROOT}/modules/protocol                # xbox_one_protocol.h, identifiers.h
+  ${REPO_ROOT}/modules/log                     # orb_log.h / orb_debug.h / orb_enum.hpp
+  ${REPO_ROOT}/modules/core                    # orb_c_api.h
+  ${REPO_ROOT}/external/magic_enum/include     # <magic_enum/magic_enum.hpp> (debug path)
+  ${DOCTEST_DIR}                               # #include "doctest/doctest.h"
 )
 
 # Keep firmware-style debug logging compiled in (default) so the LOG_*/orb_debug.h

@@ -11,9 +11,10 @@ set(PICO_TINYUSB_PATH ${CMAKE_SOURCE_DIR}/external/tinyusb)
 
 # FreeRTOS SMP kernel (V11.2.0, portable/ThirdParty/GCC/RP2040). The import is pulled
 # in after pico_sdk_init() below so it only applies to targets that explicitly link it.
-# FREERTOS_CONFIG_FILE_DIRECTORY tells the kernel where inc/FreeRTOSConfig.h lives.
+# FREERTOS_CONFIG_FILE_DIRECTORY tells the kernel where FreeRTOSConfig.h lives
+# (modules/osal/, alongside the osal wrappers that wrap the kernel).
 set(FREERTOS_KERNEL_PATH ${CMAKE_SOURCE_DIR}/external/FreeRTOS-Kernel)
-set(FREERTOS_CONFIG_FILE_DIRECTORY ${CMAKE_SOURCE_DIR}/inc)
+set(FREERTOS_CONFIG_FILE_DIRECTORY ${CMAKE_SOURCE_DIR}/modules/osal)
 
 include(pico_sdk_import.cmake)
 include(cmake/AddBoardTarget.cmake)
@@ -58,56 +59,56 @@ include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_i
 target_link_libraries(tinyusb_common INTERFACE FreeRTOS-Kernel-Heap4)
 
 add_subdirectory(external)
-include_directories(inc)
 
 # magic_enum (Neargye/magic_enum @ v0.9.7): header-only compile-time enum reflection,
-# used debug-gated via inc/orb_enum.hpp to render enumerator names without hand-rolled
-# tables. Only the include path is needed; the tables are pulled in solely by DEBUG TUs
-# (OPENRB_DEBUG_ENABLED), so a release build links none of them. Include as
-# <magic_enum/magic_enum.hpp>.
+# used debug-gated via modules/log/orb_enum.hpp to render enumerator names without
+# hand-rolled tables. Only the include path is needed; the tables are pulled in solely by
+# DEBUG TUs (OPENRB_DEBUG_ENABLED), so a release build links none of them. Include as
+# <magic_enum/magic_enum.hpp>. Kept global so any module's debug build can reach it.
 include_directories(external/magic_enum/include)
 
 # FatFs (vendored in our TinyUSB fork) for writing the log to a USB flash drive.
 # Pulled from external/tinyusb (PICO_TINYUSB_PATH), NOT pico-sdk's bundled tinyusb, so
 # the build depends only on the tinyusb tree we pin (the SDK's lib/tinyusb is otherwise
 # unused -- the USB stack already comes from external/tinyusb). The FatFs sources are
-# byte-identical between the two (revision 80286).
+# byte-identical between the two (revision 80286). Its disk_* callbacks are implemented in
+# modules/log/usb_log.cpp.
+#
+# fatfs is an INTERFACE library carrying the .c as INTERFACE sources so they compile INTO
+# whichever executable links it -- exactly as the old flat SOURCES list did. That matters:
+# compiled in the executable, the FatFs sources inherit the pico-sdk optimisation +
+# -ffunction-sections flags (and dead FatFs functions get GC'd at link). Built as a
+# standalone STATIC library they'd compile at -O0 with no section GC and bloat the image
+# by ~5.7 KB. The include dir is exposed (ff.h/diskio.h) and the per-file -w (FatFs has
+# many warnings) is applied below, same as before the restructure.
 set(FATFS_DIR ${PICO_TINYUSB_PATH}/lib/fatfs/source)
-include_directories(${FATFS_DIR})
+add_library(fatfs INTERFACE)
+target_sources(fatfs INTERFACE
+    ${FATFS_DIR}/ff.c
+    ${FATFS_DIR}/ffsystem.c
+    ${FATFS_DIR}/ffunicode.c)
+target_include_directories(fatfs INTERFACE ${FATFS_DIR})
 # FatFs has its own (lots of) warnings; don't let them fail our build.
 set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_DIR}/ffsystem.c
     PROPERTIES COMPILE_FLAGS "-w")
 
-set(SOURCES
-    src/main.cpp
-    src/adapter_ctx.cpp
-    src/app_queues.cpp
-    src/app_tasks.cpp
-    src/freertos_hooks.cpp
-    src/dlog.cpp
-    src/orb_log.cpp
-    src/usb_log.cpp
-    ${FATFS_DIR}/ff.c
-    ${FATFS_DIR}/ffsystem.c
-    ${FATFS_DIR}/ffunicode.c
-    src/drums.cpp
-    src/packet_queue.cpp
-    src/host_drivers.cpp
-    src/usb_descriptors.cpp
-    src/xbox_controller_driver.cpp
-    src/xbox_device_driver.cpp
-    src/xbox_one_protocol.cpp
-    src/wla_identifiers.cpp
-    src/instrument_manager.cpp
-    src/midi.cpp
-    src/guitar.cpp
-    # got this hack from PIO example to fix some missing dependencies - should be fixed in later PICO SDK versions
-    # https://github.com/sekigon-gonnoc/Pico-PIO-USB/blob/0f747aaa0c16f750bdfa2ba37ec25d6c8e1bc117/examples/host_hid_to_device_cdc/CMakeLists.txt#L8
-    ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/dcd_pio_usb.c
-    ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
-)
+# The layered module tree. Each modules/<layer>/CMakeLists.txt defines one INTERFACE
+# target whose target_link_libraries point ONLY at the layers below it -- those edges ARE
+# the architecture made physical (docs/architecture/modern-cpp.md). Added bottom-up;
+# orb_app aggregates the whole graph, so each executable links just orb_app and the whole
+# firmware funnels in (the pico-sdk/TinyUSB/FreeRTOS libs are themselves INTERFACE-source
+# libs, so the entire program compiles into the executable -- exactly as the old flat
+# SOURCES list did, leaving code size unchanged by the move).
+add_subdirectory(modules/core)
+add_subdirectory(modules/osal)
+add_subdirectory(modules/board)
+add_subdirectory(modules/platform/pico)
+add_subdirectory(modules/hal)
+add_subdirectory(modules/log)
+add_subdirectory(modules/protocol)
+add_subdirectory(modules/service)
+add_subdirectory(modules/driver)
+add_subdirectory(modules/app)
 
-set(COMMON_COMPILE_DEFS -DCFG_TUSB_CONFIG_FILE="${CMAKE_SOURCE_DIR}/inc/custom_config.h")
-
-add_board_target(${PROJECT_NAME} FEATHER "${SOURCES}")
-add_board_target(${PROJECT_NAME} CUSTOM_REV_0_1 "${SOURCES}")
+add_board_target(${PROJECT_NAME} FEATHER)
+add_board_target(${PROJECT_NAME} CUSTOM_REV_0_1)
