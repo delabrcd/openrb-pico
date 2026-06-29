@@ -15,7 +15,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(openrb_host_tests CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON) # protocol TU uses __attribute__((packed)) etc.
 
