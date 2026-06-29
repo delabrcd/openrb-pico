@@ -1,5 +1,4 @@
-#ifndef ORB_LOG_H_
-#define ORB_LOG_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -131,4 +130,3 @@ ORB_C_END
             orb_log_hexdump((level), (cat), (ptr), (len));      \
     } while (0)
 
-#endif  // ORB_LOG_H_

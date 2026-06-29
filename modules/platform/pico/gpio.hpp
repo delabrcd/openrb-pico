@@ -7,8 +7,7 @@
  * cost is one stored byte and the SDK gpio_* calls already take a runtime pin, so there
  * is no codegen benefit to compile-time pins, and it keeps the board pin tables simple.
  */
-#ifndef ORB_PLATFORM_PICO_GPIO_HPP
-#define ORB_PLATFORM_PICO_GPIO_HPP
+#pragma once
 
 #include "hardware/gpio.h"
 
@@ -59,4 +58,3 @@ class GpioOpenDrain {
 
 }  // namespace orb::platform::pico
 
-#endif  // ORB_PLATFORM_PICO_GPIO_HPP

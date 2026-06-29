@@ -1,5 +1,4 @@
-#ifndef ORB_INSTRUMENT_MANAGER_H_
-#define ORB_INSTRUMENT_MANAGER_H_
+#pragma once
 
 #include "orb_c_api.h"  // ORB_C_BEGIN/END (impl is C++ now; callers are C)
 #include "xbox_one_protocol.h"
@@ -25,4 +24,3 @@ void disconnect_instrument(instruments_e instrument, xbox_packet_t *scratch_spac
 
 ORB_C_END
 
-#endif

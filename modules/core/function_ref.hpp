@@ -13,8 +13,7 @@
  *   void drain(core::function_ref<void(std::span<const std::byte>)> sink);
  *   drain([&](auto bytes){ uart.write(bytes); });   // lambda lives across the call -> OK
  */
-#ifndef ORB_CORE_FUNCTION_REF_HPP
-#define ORB_CORE_FUNCTION_REF_HPP
+#pragma once
 
 #include <functional>  // std::invoke (no allocation)
 #include <memory>      // std::addressof
@@ -56,4 +55,3 @@ class function_ref<R(Args...)> {
 
 }  // namespace orb::core
 
-#endif  // ORB_CORE_FUNCTION_REF_HPP

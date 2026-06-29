@@ -89,17 +89,17 @@ void __not_in_flash_func(tusb_time_delay_ms_api)(uint32_t ms) {
 }
 
 
-static inline void set_auth_led(bool val) { gpio_put(PIN_LED, val); }
+static inline void set_auth_led(bool val) { gpio_put(orb::board::pin_led, val); }
 
 static inline void set_usb_host(bool on) {
 #if ORB_BOARD_ID == ORB_BOARD_ID_FEATHER
     static bool configured = false;
     if (!configured) {
-        gpio_init(PIN_5V_EN);
-        gpio_set_dir(PIN_5V_EN, GPIO_OUT);
+        gpio_init(orb::board::pin_5v_en);
+        gpio_set_dir(orb::board::pin_5v_en, GPIO_OUT);
         configured = true;
     }
-    gpio_put(PIN_5V_EN, on);
+    gpio_put(orb::board::pin_5v_en, on);
 #else
     (void)on;
 #endif
@@ -295,7 +295,7 @@ static void announce_task() {
     if (orb::service::adapter().state() != STATE_INIT) return;
 
     static unsigned long last_announce_time = 0;
-    if ((board_millis() - last_announce_time) > ANNOUNCE_INTERVAL_MS) {
+    if ((board_millis() - last_announce_time) > orb::service::announce_interval_ms) {
         if (orb::service::adapter().controller_idx() < UINT8_MAX) {
             LOG_INFO(CAT_DEV, "ANNOUNCING");
             identifiers_get_announce(&out_packet);
@@ -309,7 +309,7 @@ static void configure_host() {
     LOG_INFO(CAT_HOST, "configuring usb host stack");
 
     pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
-    pio_cfg.pin_dp = PIN_USB_HOST_DP;
+    pio_cfg.pin_dp = orb::board::pin_usb_host_dp;
 
     // find an unused channel
     pio_cfg.tx_ch = dma_claim_unused_channel(true);
@@ -476,15 +476,15 @@ void usb_host_task(void *param) {
 // Schottky-diode-to-MCU arrangement).
 static void reset_usb_hub(void) {
 #if ORB_BOARD_ID == ORB_BOARD_ID_CUSTOM_REV_0_1
-    gpio_init(PIN_USB_HUB_RST);
-    gpio_set_dir(PIN_USB_HUB_RST, GPIO_OUT);
-    gpio_put(PIN_USB_HUB_RST, 0);            // assert RESET# low (>4us; we hold 10ms)
+    gpio_init(orb::board::pin_usb_hub_rst);
+    gpio_set_dir(orb::board::pin_usb_hub_rst, GPIO_OUT);
+    gpio_put(orb::board::pin_usb_hub_rst, 0);  // assert RESET# low (>4us; we hold 10ms)
     // busy_wait_ms, NOT sleep_ms: this runs in init() BEFORE vTaskStartScheduler(), and
     // with configSUPPORT_PICO_TIME_INTEROP the SDK sleep_ms blocks at the FreeRTOS level
     // (xEventGroupWaitBits) -- which never wakes pre-scheduler, deadlocking core0 (so the
     // scheduler never starts and core1 never launches). busy_wait_ms is a pure timer wait.
     busy_wait_ms(10);
-    gpio_set_dir(PIN_USB_HUB_RST, GPIO_IN);  // release to Hi-Z; internal pull-up -> high, no CDP
+    gpio_set_dir(orb::board::pin_usb_hub_rst, GPIO_IN);  // release to Hi-Z; pull-up -> high, no CDP
     busy_wait_ms(50);                        // wait out the hub POR (~5-14ms) before host init
 #endif
 }
@@ -599,8 +599,8 @@ static void init() {
     xbox_fifo_init();
     LOG_INFO(CAT_SYS, "finished initializing xbox fifo...");
 
-    gpio_init(PIN_LED);
-    gpio_set_dir(PIN_LED, true);
+    gpio_init(orb::board::pin_led);
+    gpio_set_dir(orb::board::pin_led, true);
 
     // Reset the hub before bringing up the host so a warm/watchdog reset
     // re-enumerates the controller cleanly instead of staying wedged.

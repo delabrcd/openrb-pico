@@ -1,5 +1,4 @@
-#ifndef ORB_MIDI_H_
-#define ORB_MIDI_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -40,5 +39,3 @@ void serial_midi_init();
 int serial_midi_read(uint8_t* buf);
 
 ORB_C_END
-
-#endif

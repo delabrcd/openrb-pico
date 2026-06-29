@@ -1,5 +1,4 @@
-#ifndef ORB_HIHAT_CONFIG_H_
-#define ORB_HIHAT_CONFIG_H_
+#pragma once
 
 // Compile-time configuration for the alternate (CC-keyed) hi-hat mode.
 //
@@ -63,4 +62,3 @@
     { 22, 26, 42, 46 }
 #endif
 
-#endif  // ORB_HIHAT_CONFIG_H_

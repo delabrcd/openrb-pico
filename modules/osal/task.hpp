@@ -16,8 +16,7 @@
  *   static orb::osal::Task<2048> host_task;
  *   host_task.start("usb_host", usb_host_entry, nullptr, prio, 1u << 1);
  */
-#ifndef OPENRB_OSAL_TASK_HPP
-#define OPENRB_OSAL_TASK_HPP
+#pragma once
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -47,4 +46,3 @@ class Task {
 
 }  // namespace orb::osal
 
-#endif  // OPENRB_OSAL_TASK_HPP

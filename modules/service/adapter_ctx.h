@@ -1,5 +1,4 @@
-#ifndef ADAPTER_CTX_H
-#define ADAPTER_CTX_H
+#pragma once
 
 // Cross-core adapter state shared between core0 (USB device stack / device-RX
 // callbacks) and core1 (USB host stack / controller mount-umount-RX). Previously a
@@ -96,4 +95,3 @@ AdapterState& adapter();
 
 }  // namespace orb::service
 
-#endif  // ADAPTER_CTX_H

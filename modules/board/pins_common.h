@@ -2,11 +2,8 @@
 
 #include <stdint.h>
 
-#define PINS_COUNT (30u)
-#define NUM_DIGITAL_PINS (30u)
-#define NUM_ANALOG_INPUTS (4u)
-#define NUM_ANALOG_OUTPUTS (0u)
-#define ADC_RESOLUTION (12u)
+// PINS_COUNT / NUM_DIGITAL_PINS / NUM_ANALOG_INPUTS / NUM_ANALOG_OUTPUTS / ADC_RESOLUTION
+// deleted: dead Arduino-variant macros with no consumer in modules/ or external/ (verified).
 
 #ifdef PIN_LED
 #define LED_BUILTIN PIN_LED

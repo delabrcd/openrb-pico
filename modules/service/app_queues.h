@@ -1,5 +1,4 @@
-#ifndef APP_QUEUES_H
-#define APP_QUEUES_H
+#pragma once
 #include <stdbool.h>
 #include <stdint.h>
 #include "orb_c_api.h"           // ORB_C_BEGIN/END (impl is C++ now; callers are C)
@@ -20,4 +19,3 @@ bool midi_note_send(const midi_note_t *n);    // non-blocking; false if full
 bool midi_note_recv(midi_note_t *n);          // non-blocking; false if empty
 
 ORB_C_END
-#endif

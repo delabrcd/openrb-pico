@@ -1,12 +1,19 @@
-#ifndef XBOX_ONE_PROTOCOL_H
-#define XBOX_ONE_PROTOCOL_H
+#pragma once
 
 #include <assert.h>
+#include <cstddef>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "orb_debug.h"
 #include "orb_c_api.h"
+
+/* Xbox One data taken from descriptors: max wire packet size (BUCKET A). C++-only
+ * constexpr -- every consumer is C++, and it is used both in a static_assert and to size
+ * the wire union's buffer (constexpr works in both). It lives OUTSIDE the ORB_C_BEGIN/END
+ * seam below: that linkage-specification is for the C-linkage function declarations, not a
+ * compile-time constant. */
+inline constexpr std::size_t XBOX_ONE_EP_MAXPKTSIZE = 64;
 
 // Transitional: xbox_one_protocol.c is still C; this seam gives its declarations C linkage
 // when included from a C++ TU (no-op in C) so they resolve until the module is converted.
@@ -55,9 +62,6 @@ enum led_mode_e {
 };
 
 typedef uint8_t led_mode_t;
-
-/* Xbox One data taken from descriptors */
-#define XBOX_ONE_EP_MAXPKTSIZE 64  // Max size for data via USB
 
 typedef struct {
     uint8_t command;
@@ -274,5 +278,3 @@ const char *get_command_name(int cmd);
 #endif
 
 ORB_C_END
-
-#endif

@@ -40,8 +40,7 @@
  *   uint32_t n = min(run.len, chunk_cap);
  *   if (f_write(run.ptr, n) == OK) ring.consume(n);
  */
-#ifndef OPENRB_SPSC_RING_HPP
-#define OPENRB_SPSC_RING_HPP
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -132,4 +131,3 @@ class SpscRing {
 
 }  // namespace orb::core
 
-#endif  // OPENRB_SPSC_RING_HPP

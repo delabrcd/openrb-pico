@@ -34,6 +34,52 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # a separate build-debug/ tree with this ON so the optimized build/ keeps coexisting.
 option(ORB_DEBUG_BUILD "Build the project's own sources with -Og + full unwind info for debugging" OFF)
 
+# --- Feature-gate build profiles (see docs/architecture/modern-cpp.md, BUCKET B) ------
+# These four knobs were hard-coded as preprocessor #defines in the headers. They REMAIN
+# preprocessor macros on purpose -- each is consumed in `#if` and gates whole #includes /
+# declarations (magic_enum in orb_enum.hpp, get_command_name in xbox_one_protocol.h, the
+# LOG_* level floor in orb_log.h) -- a constexpr cannot drive `#if` or zero-cost
+# compile-out. What changes: their VALUES now come from the build system and are pushed
+# through orb_buildconfig (an INTERFACE lib linked by every board executable + the host
+# test). The headers keep their `#ifndef X / #define X <default> / #endif` fallbacks, so a
+# standalone/host compile still works and CMake merely pins the per-profile value.
+#
+# A plain `cmake -B build` with NO preset reproduces TODAY's values (debug ON, level
+# DEBUG, color OFF, hihat 0) -> the default firmware image stays byte-identical.
+# ORB_DEBUG_BUILD (above) is orthogonal: it tunes optimisation/unwind, not features.
+option(ORB_DEBUG "Enable debug logging + magic_enum reflection (-> OPENRB_DEBUG_ENABLED)" ON)
+
+set(ORB_LOG_LEVEL "DEBUG" CACHE STRING "Compile-time log level floor")
+set_property(CACHE ORB_LOG_LEVEL PROPERTY STRINGS NONE ERROR WARN INFO DEBUG TRACE)
+
+option(ORB_LOG_COLOR "Bake ANSI SGR color codes into the UART log stream (-> ORB_LOG_COLOR)" OFF)
+
+set(ORB_HIHAT_MODE "0" CACHE STRING "Hi-hat feature mode: 0=off (default), 1=discover, 2=CC override")
+
+# Map the ORB_LOG_LEVEL string to its LOG_LEVEL_* ordinal (must match modules/log/orb_log.h).
+set(_ORB_LOG_ORD_NONE 0)
+set(_ORB_LOG_ORD_ERROR 1)
+set(_ORB_LOG_ORD_WARN 2)
+set(_ORB_LOG_ORD_INFO 3)
+set(_ORB_LOG_ORD_DEBUG 4)
+set(_ORB_LOG_ORD_TRACE 5)
+if(NOT DEFINED _ORB_LOG_ORD_${ORB_LOG_LEVEL})
+    message(FATAL_ERROR
+        "ORB_LOG_LEVEL must be one of NONE/ERROR/WARN/INFO/DEBUG/TRACE (got '${ORB_LOG_LEVEL}')")
+endif()
+set(_ORB_LOG_LEVEL_ORD ${_ORB_LOG_ORD_${ORB_LOG_LEVEL}})
+
+# orb_buildconfig: header-less INTERFACE lib carrying ONLY the feature-gate -D's. Linked
+# into each board executable (AddBoardTarget.cmake) and the host test (test/CMakeLists.txt)
+# so the defs reach every TU funnelled in as INTERFACE sources -- exactly how ORB_BOARD_ID
+# is propagated onto the executable.
+add_library(orb_buildconfig INTERFACE)
+target_compile_definitions(orb_buildconfig INTERFACE
+    OPENRB_DEBUG_ENABLED=$<BOOL:${ORB_DEBUG}>
+    ORB_LOG_LEVEL=${_ORB_LOG_LEVEL_ORD}
+    ORB_LOG_COLOR=$<BOOL:${ORB_LOG_COLOR}>
+    ORB_HIHAT_MODE=${ORB_HIHAT_MODE})
+
 
 set(PICO_PIO_USB_PATH external/Pico-PIO-USB)
 

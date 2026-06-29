@@ -12,8 +12,7 @@
  * aliases in hal/platform.hpp at it. A static_assert (below, on the selected types) turns
  * a missing/!wrong operation into a compile error at the boundary, not a runtime surprise.
  */
-#ifndef ORB_HAL_GPIO_HPP
-#define ORB_HAL_GPIO_HPP
+#pragma once
 
 #include <concepts>
 
@@ -39,4 +38,3 @@ concept OpenDrainPin = requires(T pin) {
 
 }  // namespace orb::hal
 
-#endif  // ORB_HAL_GPIO_HPP

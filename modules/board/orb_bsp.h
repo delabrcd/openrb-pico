@@ -1,5 +1,4 @@
-#ifndef ORB_BSP_H_
-#define ORB_BSP_H_
+#pragma once
 #define ORB_IN_BSP
 
 #define ORB_BOARD_ID_FEATHER 1
@@ -19,5 +18,3 @@
 #endif
 
 #undef ORB_IN_BSP
-
-#endif  // ORB_BSP_H_

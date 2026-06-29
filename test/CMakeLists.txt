@@ -51,5 +51,15 @@ target_include_directories(protocol_tests PRIVATE
 # path through the protocol TU is actually built and linked against the no-op stubs.
 target_compile_options(protocol_tests PRIVATE -Wall -Wextra)
 
+# Mirror the firmware's DEFAULT profile feature gates (the orb_buildconfig -D's the board
+# executables get) so the host test exercises the same configuration. Values match the
+# headers' #ifndef fallbacks, so the build is unchanged -- this just makes them explicit.
+# (ORB_LOG_LEVEL 4 == LOG_LEVEL_DEBUG in modules/log/orb_log.h.)
+target_compile_definitions(protocol_tests PRIVATE
+  OPENRB_DEBUG_ENABLED=1
+  ORB_LOG_LEVEL=4
+  ORB_LOG_COLOR=0
+  ORB_HIHAT_MODE=0)
+
 enable_testing()
 add_test(NAME protocol_tests COMMAND protocol_tests)

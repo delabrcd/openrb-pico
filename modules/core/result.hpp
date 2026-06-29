@@ -28,8 +28,7 @@
  *   TRY(g());                        // propagate g()'s error out of the caller
  *   int n = TRY_VAL(f());            // bind f()'s value, or propagate its error
  */
-#ifndef OPENRB_RESULT_HPP
-#define OPENRB_RESULT_HPP
+#pragma once
 
 #include <cstdint>
 #include <type_traits>
@@ -150,4 +149,3 @@ class Result<void, E> {
         _try_r.value();                              \
     })
 
-#endif  // OPENRB_RESULT_HPP

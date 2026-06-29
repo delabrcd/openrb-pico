@@ -19,8 +19,7 @@
  *   void xboxh_xfer_cb(...);   // implemented as an extern "C" shim -> XboxController
  *   ORB_C_END
  */
-#ifndef OPENRB_ORB_C_API_H
-#define OPENRB_ORB_C_API_H
+#pragma once
 
 #ifdef __cplusplus
 #define ORB_C_API extern "C"
@@ -32,4 +31,3 @@
 #define ORB_C_END
 #endif
 
-#endif  // OPENRB_ORB_C_API_H

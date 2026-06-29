@@ -12,8 +12,7 @@
  *   if (auto* c = controllers.emplace_back(addr, itf)) { ... }   // nullptr if full
  *   for (auto& c : controllers) c.poll();
  */
-#ifndef ORB_CORE_STATIC_VECTOR_HPP
-#define ORB_CORE_STATIC_VECTOR_HPP
+#pragma once
 
 #include <cstddef>
 #include <new>
@@ -105,4 +104,3 @@ class static_vector {
 
 }  // namespace orb::core
 
-#endif  // ORB_CORE_STATIC_VECTOR_HPP

@@ -23,6 +23,7 @@ function(add_board_target PROJECT_NAME BOARD_NAME)
     # exactly the set the old single target listed.
     target_link_libraries(${TARGET_NAME} PRIVATE
         orb_app
+        orb_buildconfig
         fatfs
         pico_pio_usb tinyusb_bsp tinyusb_host tinyusb_device usb_midi_host
         FreeRTOS-Kernel-Heap4)

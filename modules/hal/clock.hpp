@@ -5,8 +5,7 @@
  * pure busy-wait (never a scheduler sleep). See docs/architecture/modern-cpp.md and the
  * core1 gotchas in docs/FREERTOS-PORT.md.
  */
-#ifndef ORB_HAL_CLOCK_HPP
-#define ORB_HAL_CLOCK_HPP
+#pragma once
 
 #include <concepts>
 #include <cstdint>
@@ -31,4 +30,3 @@ concept BusyDelay = requires(const T d, uint32_t n) {
 
 }  // namespace orb::hal
 
-#endif  // ORB_HAL_CLOCK_HPP

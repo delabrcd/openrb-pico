@@ -27,8 +27,7 @@
  * pvTimerGetTimerID(handle) / id() retrieve the stashed void* id if the callback needs
  * to find per-timer state through the handle rather than a file-static.
  */
-#ifndef OPENRB_OSAL_TIMER_HPP
-#define OPENRB_OSAL_TIMER_HPP
+#pragma once
 
 #include "FreeRTOS.h"
 #include "timers.h"
@@ -66,4 +65,3 @@ class Timer {
 
 }  // namespace orb::osal
 
-#endif  // OPENRB_OSAL_TIMER_HPP

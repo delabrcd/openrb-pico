@@ -7,8 +7,7 @@
  * must never take a spinlock or stall the other core (the core1 PIO-USB timing forbids
  * it). The guard must be non-copyable so the mask is released exactly once.
  */
-#ifndef ORB_HAL_INTERRUPT_HPP
-#define ORB_HAL_INTERRUPT_HPP
+#pragma once
 
 #include <concepts>
 #include <type_traits>
@@ -23,4 +22,3 @@ concept ScopedIrqMask = std::is_default_constructible_v<T> &&
 
 }  // namespace orb::hal
 
-#endif  // ORB_HAL_INTERRUPT_HPP

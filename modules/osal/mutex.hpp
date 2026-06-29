@@ -31,8 +31,7 @@
  *
  * No heap, no exceptions: take()/give() report success by bool; failures are not thrown.
  */
-#ifndef OPENRB_OSAL_MUTEX_HPP
-#define OPENRB_OSAL_MUTEX_HPP
+#pragma once
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -87,4 +86,3 @@ class ScopedLock {
 
 }  // namespace orb::osal
 
-#endif  // OPENRB_OSAL_MUTEX_HPP

@@ -1,5 +1,4 @@
-#ifndef XBOX_CONTROLLER_DRIVER_H
-#define XBOX_CONTROLLER_DRIVER_H
+#pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -53,5 +52,3 @@ void xboxh_power_off_controllers();
 void xboxh_reset_controllers();
 
 ORB_C_END
-
-#endif  // XBOX_CONTROLLER_DRIVER_H

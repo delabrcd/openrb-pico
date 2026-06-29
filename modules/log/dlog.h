@@ -1,5 +1,4 @@
-#ifndef ORB_DLOG_H_
-#define ORB_DLOG_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -28,4 +27,3 @@ void dlog_set_sink(dlog_sink_t sink);
 
 ORB_C_END
 
-#endif  // ORB_DLOG_H_

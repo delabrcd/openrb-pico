@@ -31,13 +31,13 @@
 #include <span>
 #include <string_view>
 
-// TinyUSB / adapter.h are plain C headers (adapter.h has no C-linkage seam of its own);
-// wrap them in extern "C" so their symbols resolve to their C definitions -- same
-// local-seam pattern instrument_manager.cpp / wla_identifiers.cpp use. The TinyUSB
-// headers carry their own __cplusplus guards; the nesting is harmless.
+#include "adapter.h"  // orb::service endpoint/interval constexprs -- a C++ header now
+
+// TinyUSB headers are plain C; wrap them in extern "C" so their symbols resolve to their
+// C definitions -- same local-seam pattern instrument_manager.cpp / wla_identifiers.cpp
+// use. The TinyUSB headers carry their own __cplusplus guards; the nesting is harmless.
 extern "C" {
 #include "bsp/board_api.h"
-#include "adapter.h"
 #include "common/tusb_types.h"
 #include "device/usbd.h"
 #include "tusb.h"
@@ -55,8 +55,8 @@ constexpr std::uint8_t USB_CONFIG_POWER_MA(unsigned mA) {
     return static_cast<std::uint8_t>(mA >> 1);
 }
 
-constexpr std::uint8_t ADAPTER_IN_NUM  = ENDPOINT_DIR_IN | 1;
-constexpr std::uint8_t ADAPTER_OUT_NUM = ENDPOINT_DIR_OUT | 2;
+constexpr std::uint8_t ADAPTER_IN_NUM  = orb::service::endpoint_dir_in | 1;
+constexpr std::uint8_t ADAPTER_OUT_NUM = orb::service::endpoint_dir_out | 2;
 
 // Endpoint bmAttributes is a 1-byte bitfield. The original C OR'd three distinct TinyUSB
 // enum types directly; in C++20 enum|enum is deprecated, so fold them through an integral
@@ -178,7 +178,7 @@ const struct {
                                                                 TUSB_ISO_EP_ATT_NO_SYNC,
                                                                 TUSB_ISO_EP_ATT_DATA),
                              .EndpointSize      = 64,
-                             .PollingIntervalMS = ADAPTER_OUT_INTERVAL},
+                             .PollingIntervalMS = orb::service::adapter_out_interval},
     .I00ReportINEndpoint  = {.Header = {.Size = sizeof(ConfigurationDescriptor.I00ReportINEndpoint),
                                         .Type = TUSB_DESC_ENDPOINT},
                              .EndpointAddress   = ADAPTER_IN_NUM,
@@ -186,7 +186,7 @@ const struct {
                                                                 TUSB_ISO_EP_ATT_NO_SYNC,
                                                                 TUSB_ISO_EP_ATT_DATA),
                              .EndpointSize      = 64,
-                             .PollingIntervalMS = ADAPTER_IN_INTERVAL},
+                             .PollingIntervalMS = orb::service::adapter_in_interval},
 
     .Interface10          = {.Header            = {.Size = sizeof(ConfigurationDescriptor.Interface10),
                                                    .Type = TUSB_DESC_INTERFACE},
@@ -209,7 +209,7 @@ const struct {
     .I11ReportOUTEndpoint = {.Header            = {.Size =
                                                        sizeof(ConfigurationDescriptor.I11ReportOUTEndpoint),
                                                    .Type = TUSB_DESC_ENDPOINT},
-                             .EndpointAddress   = (ENDPOINT_DIR_OUT | 4),
+                             .EndpointAddress   = (orb::service::endpoint_dir_out | 4),
                              .Attributes        = ep_attributes(TUSB_XFER_ISOCHRONOUS,
                                                                 TUSB_ISO_EP_ATT_NO_SYNC,
                                                                 TUSB_ISO_EP_ATT_DATA),
@@ -217,7 +217,7 @@ const struct {
                              .PollingIntervalMS = 0x01},
     .I11ReportINEndpoint  = {.Header = {.Size = sizeof(ConfigurationDescriptor.I11ReportINEndpoint),
                                         .Type = TUSB_DESC_ENDPOINT},
-                             .EndpointAddress   = (ENDPOINT_DIR_IN | 3),
+                             .EndpointAddress   = (orb::service::endpoint_dir_in | 3),
                              .Attributes        = ep_attributes(TUSB_XFER_ISOCHRONOUS,
                                                                 TUSB_ISO_EP_ATT_NO_SYNC,
                                                                 TUSB_ISO_EP_ATT_DATA),
@@ -244,14 +244,14 @@ const struct {
     .I21ReportOUTEndpoint = {.Header          = {.Size =
                                                      sizeof(ConfigurationDescriptor.I21ReportOUTEndpoint),
                                                  .Type = TUSB_DESC_ENDPOINT},
-                             .EndpointAddress = (ENDPOINT_DIR_OUT | 6),
+                             .EndpointAddress = (orb::service::endpoint_dir_out | 6),
                              .Attributes      = ep_attributes(TUSB_XFER_BULK, TUSB_ISO_EP_ATT_NO_SYNC,
                                                               TUSB_ISO_EP_ATT_DATA),
                              .EndpointSize      = 64,
                              .PollingIntervalMS = 0x00},
     .I21ReportINEndpoint  = {.Header = {.Size = sizeof(ConfigurationDescriptor.I21ReportINEndpoint),
                                         .Type = TUSB_DESC_ENDPOINT},
-                             .EndpointAddress = (ENDPOINT_DIR_IN | 5),
+                             .EndpointAddress = (orb::service::endpoint_dir_in | 5),
                              .Attributes      = ep_attributes(TUSB_XFER_BULK, TUSB_ISO_EP_ATT_NO_SYNC,
                                                               TUSB_ISO_EP_ATT_DATA),
                              .EndpointSize      = 64,

@@ -1,5 +1,4 @@
-#ifndef ORB_ENUM_HPP
-#define ORB_ENUM_HPP
+#pragma once
 
 // Thin, header-only, debug-gated wrapper over magic_enum so call sites can render an
 // enumerator's name without hand-maintaining a parallel string table. The whole point
@@ -36,4 +35,3 @@ constexpr std::string_view enum_name(E e) {
 
 }  // namespace orb
 
-#endif  // ORB_ENUM_HPP

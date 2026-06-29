@@ -87,7 +87,7 @@ bool xboxd_send_task() {
         TU_VERIFY(xbox_fifo_read(pkt));
     }
 
-    TU_VERIFY((board_millis() - pkt->triggered_time) > ON_DELAY_MS);
+    TU_VERIFY((board_millis() - pkt->triggered_time) > orb::service::on_delay_ms);
 
     TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
 

@@ -10,8 +10,7 @@
 // Pin definitions taken from:
 //    https://learn.adafruit.com/assets/100337
 
-// LEDs
-#define PIN_LED (13u)
+// LEDs (PIN_LED -> orb::board::pin_led, below)
 
 // NeoPixel
 #define PIN_NEOPIXEL (21u)
@@ -20,15 +19,11 @@
 // 'Boot0' button also on GPIO #7
 #define PIN_BUTTON (7u)
 
-// USB host connector
-#define PIN_USB_HOST_DP (16u)
+// USB host connector (PIN_USB_HOST_DP / PIN_5V_EN -> orb::board, below)
 #define PIN_USB_HOST_DM (17u)
-#define PIN_5V_EN (18u)
 
-// Serial
+// Serial (MIDI_UART_TX/RX -> orb::board below; MIDI_UART stays a hardware-instance macro)
 #define MIDI_UART uart0
-#define MIDI_UART_TX (0)
-#define MIDI_UART_RX (1)
 
 #define DBG_UART_ID uart1
 #define DBG_UART_TX_PIN (24)
@@ -61,6 +56,20 @@
 #define PIN_WIRE1_SCL (31u)
 #define __WIRE1_DEVICE i2c0
 
-#define SERIAL_HOWMANY (2u)
-#define SPI_HOWMANY (1u)
-#define WIRE_HOWMANY (1u)
+// SERIAL_HOWMANY / SPI_HOWMANY / WIRE_HOWMANY deleted: dead Arduino-variant macros with no
+// consumer in modules/ or external/ (verified). (PINS_COUNT / NUM_* / ADC_RESOLUTION were
+// removed from pins_common.h for the same reason.)
+
+#ifdef __cplusplus
+// Pin numbers our code actually drives, as typed constexpr in the per-board namespace
+// (BUCKET A). `unsigned` reproduces the old `(Nu)` macro literal type exactly so codegen is
+// byte-identical. Hardware-instance selectors (MIDI_UART, DBG_UART_ID, __*_DEVICE) stay
+// macros -- they name pico-sdk objects, not pin numbers, and must expand lazily at use.
+namespace orb::board {
+inline constexpr unsigned pin_led = 13u;
+inline constexpr unsigned pin_usb_host_dp = 16u;
+inline constexpr unsigned pin_5v_en = 18u;
+inline constexpr unsigned midi_uart_tx = 0u;
+inline constexpr unsigned midi_uart_rx = 1u;
+}  // namespace orb::board
+#endif  // __cplusplus

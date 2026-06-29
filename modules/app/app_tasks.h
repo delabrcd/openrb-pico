@@ -4,8 +4,7 @@
  * app_tasks.cpp via the orb::osal::Task<> template. main() calls app_start_tasks() then
  * vTaskStartScheduler().
  */
-#ifndef OPENRB_APP_TASKS_H
-#define OPENRB_APP_TASKS_H
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,4 +25,3 @@ void app_start_tasks(void);
 }
 #endif
 
-#endif  // OPENRB_APP_TASKS_H

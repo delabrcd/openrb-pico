@@ -1,5 +1,4 @@
-#ifndef ORB_PACKET_QUEUE_H_
-#define ORB_PACKET_QUEUE_H_
+#pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,4 +25,3 @@ void xbox_fifo_clear(void);
 
 ORB_C_END
 
-#endif  // ORB_PACKET_QUEUE_H_

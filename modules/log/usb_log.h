@@ -1,5 +1,4 @@
-#ifndef ORB_USB_LOG_H_
-#define ORB_USB_LOG_H_
+#pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -30,4 +29,3 @@ void usb_log_set_enabled(bool enabled);
 
 ORB_C_END
 
-#endif  // ORB_USB_LOG_H_

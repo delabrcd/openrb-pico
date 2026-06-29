@@ -9,8 +9,7 @@
  * As HAL subsystems land (clock, uart, dma, watchdog, irq, usb-phy) they add their concept
  * + platform impl + alias + assert here, following the GPIO slice.
  */
-#ifndef ORB_HAL_PLATFORM_HPP
-#define ORB_HAL_PLATFORM_HPP
+#pragma once
 
 #include "hal/clock.hpp"
 #include "hal/gpio.hpp"
@@ -40,4 +39,3 @@ static_assert(ScopedIrqMask<IrqGuard>, "platform IrqGuard must satisfy hal::Scop
 
 }  // namespace orb::hal
 
-#endif  // ORB_HAL_PLATFORM_HPP

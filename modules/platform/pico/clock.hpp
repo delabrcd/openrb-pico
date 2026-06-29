@@ -6,8 +6,7 @@
  * busy_wait_* for a pure busy-delay safe on the PIO-USB core and pre-scheduler. Satisfies
  * orb::hal::MonotonicClock + orb::hal::BusyDelay (asserted in hal/platform.hpp).
  */
-#ifndef ORB_PLATFORM_PICO_CLOCK_HPP
-#define ORB_PLATFORM_PICO_CLOCK_HPP
+#pragma once
 
 #include <cstdint>
 
@@ -28,4 +27,3 @@ class Clock {
 
 }  // namespace orb::platform::pico
 
-#endif  // ORB_PLATFORM_PICO_CLOCK_HPP

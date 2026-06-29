@@ -221,7 +221,7 @@ class DrumEngine {
             if (!st.triggered) continue;
 
             std::uint32_t time_since_trigger = current_time - st.triggered_at;
-            if (time_since_trigger > TRIGGER_HOLD_MS) {
+            if (time_since_trigger > trigger_hold_ms) {
                 LOG_DBG(CAT_DRUM, "NOTE OFF: %d", static_cast<int>(out));
                 update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input);
                 st.triggered = false;
@@ -229,7 +229,7 @@ class DrumEngine {
             }
         }
 
-        if (changed_ && current_time - input_pkt_.triggered_time > ADAPTER_OUT_INTERVAL) {
+        if (changed_ && current_time - input_pkt_.triggered_time > adapter_out_interval) {
             init_packet(&input_pkt_, current_time, sizeof(xb_one_drum_input_pkt_t));
             xbox_fifo_write(&input_pkt_);
             changed_ = false;
@@ -286,7 +286,7 @@ class DrumEngine {
     };
 
     void note_on(std::uint8_t note, std::uint8_t velocity) {
-        if (velocity <= VELOCITY_THRESH) return;
+        if (velocity <= velocity_thresh) return;
 
         Output out = get_output_for_note(note);
 #if ORB_HIHAT_MODE >= 2

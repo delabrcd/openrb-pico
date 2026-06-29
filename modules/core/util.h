@@ -1,6 +1,3 @@
-#ifndef OPENRB_UTIL_H
-#define OPENRB_UTIL_H
+#pragma once
 
 #define UTIL_NUM(a) (sizeof(a) / sizeof(*a))
-
-#endif  // OPENRB_UTIL_H

@@ -5,8 +5,7 @@
  * only the byte transport. uart_putc_raw is used (not uart_putc) to avoid the SDK's CR->
  * CRLF translation -- the log/MIDI streams are already byte-exact.
  */
-#ifndef ORB_PLATFORM_PICO_UART_HPP
-#define ORB_PLATFORM_PICO_UART_HPP
+#pragma once
 
 #include <cstddef>
 #include <span>
@@ -37,4 +36,3 @@ class Uart {
 
 }  // namespace orb::platform::pico
 
-#endif  // ORB_PLATFORM_PICO_UART_HPP

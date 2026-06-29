@@ -22,8 +22,7 @@
  * send()/recv() are non-blocking (timeout 0) to match the existing app_queues semantics
  * exactly; add explicit timed variants only if a caller needs to block.
  */
-#ifndef OPENRB_OSAL_QUEUE_HPP
-#define OPENRB_OSAL_QUEUE_HPP
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -61,4 +60,3 @@ class Queue {
 
 }  // namespace orb::osal
 
-#endif  // OPENRB_OSAL_QUEUE_HPP

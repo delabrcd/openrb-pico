@@ -1,5 +1,4 @@
-#ifndef XBOX_DEVICE_DRIVER_H
-#define XBOX_DEVICE_DRIVER_H
+#pragma once
 
 #include "common/tusb_common.h"
 #include "orb_c_api.h"
@@ -19,5 +18,3 @@ TU_ATTR_WEAK bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *
 TU_ATTR_WEAK void xboxd_on_reset_cb();
 
 ORB_C_END
-
-#endif

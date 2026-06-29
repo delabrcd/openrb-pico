@@ -72,8 +72,8 @@ static void __not_in_flash_func(reset_disconnect_timer)() {
 }
 
 void serial_midi_init() {
-    gpio_set_function(MIDI_UART_TX, GPIO_FUNC_UART);
-    gpio_set_function(MIDI_UART_RX, GPIO_FUNC_UART);
+    gpio_set_function(orb::board::midi_uart_tx, GPIO_FUNC_UART);
+    gpio_set_function(orb::board::midi_uart_rx, GPIO_FUNC_UART);
 
     // NB: keep uart_init out of the log-macro argument — when the level is compiled
     // out the macro expands to nothing and the UART would never initialize.

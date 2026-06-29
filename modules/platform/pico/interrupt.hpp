@@ -6,8 +6,7 @@
  * never stalls the other core or its PIO-USB SOF. Save/restore (not unconditional enable)
  * makes the guard correctly nestable. Satisfies orb::hal::ScopedIrqMask.
  */
-#ifndef ORB_PLATFORM_PICO_INTERRUPT_HPP
-#define ORB_PLATFORM_PICO_INTERRUPT_HPP
+#pragma once
 
 #include <cstdint>
 
@@ -29,4 +28,3 @@ class IrqGuard {
 
 }  // namespace orb::platform::pico
 
-#endif  // ORB_PLATFORM_PICO_INTERRUPT_HPP

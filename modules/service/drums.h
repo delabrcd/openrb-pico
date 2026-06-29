@@ -1,5 +1,4 @@
-#ifndef ORB_DRUMS_H_
-#define ORB_DRUMS_H_
+#pragma once
 
 #include "orb_c_api.h"  // ORB_C_BEGIN/END (impl is C++ now; callers are C)
 
@@ -16,4 +15,3 @@ void drums_read_midi_host(void);
 
 ORB_C_END
 
-#endif
