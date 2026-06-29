@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "orb_c_api.h"  // ORB_C_BEGIN/END — the C-linkage producer/vendor seam
+
 // Unified deferred logging front end. Sits ON TOP OF the per-core SPSC ring in
 // src/dlog.c (unchanged) and adds: 5 log levels, category tags, a producer-side
 // timestamp, a column-aligned line format, and optional inline ANSI color.
@@ -13,10 +15,14 @@
 // preserves dlog's batch-publish + drop-on-full discipline). Safe to call from
 // the timing-critical core1 PIO-USB task: only timerawl + cpuid are touched, no
 // locks, no sleep/board_millis (see docs/FREERTOS-PORT.md gotcha #2).
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+//
+// Implementation: src/orb_log.cpp, modern C++ in `namespace orb::log`. The LOG_*
+// macros below are the public API and expand to orb_log_emit(...) -- a thin
+// transitional `extern "C"` shim (in namespace orb::log) so the macros still
+// compile from the remaining C TUs (xbox_controller_driver.c, and
+// xbox_device_driver.c / xbox_one_protocol.c via orb_debug.h). orb_log_tusb_printf
+// is the permanent TinyUSB CFG_TUSB_DEBUG_PRINTF vendor seam. The runtime config
+// API (init/set_level/...) is C++-only -- callers are C++.
 
 // --- Levels (ordered; higher == more verbose; 0 == off) ----------------------
 #define LOG_LEVEL_NONE 0
@@ -55,23 +61,33 @@ typedef enum {
 } orb_cat_t;
 
 // --- Runtime control ---------------------------------------------------------
-// Above the compile-time floor, a plain uint8_t table gates at run time. Written
-// from core0 (config), read from both cores; a stale read merely admits/drops one
-// line -- benign, so no lock (consistent with dlog's lock-free philosophy).
-void orb_log_init(void);                         // wraps dlog_init() + usb_log sink
-void orb_log_set_level(int level);               // global runtime floor (all cats)
-void orb_log_set_cat_level(orb_cat_t cat, int level);  // per-category override
-int orb_log_get_level(void);                     // current global runtime floor
+// Above the compile-time floor, an atomic<uint8_t> table gates at run time
+// (relaxed load/store -> plain ldrb/strb on M0+, no RMW). Written from core0
+// (config), read from both cores; a stale read merely admits/drops one line --
+// benign, so no lock (consistent with dlog's lock-free philosophy). C++-only API;
+// the current callers (main) are C++.
+#ifdef __cplusplus
+namespace orb::log {
+void init();                                  // wraps dlog_init() + usb_log sink
+void set_level(int level);                     // global runtime floor (all cats)
+void set_cat_level(orb_cat_t cat, int level);  // per-category override
+int get_level();                               // current global runtime floor
+}  // namespace orb::log
+#endif
 
-// --- Producers (called by the macros below; also directly by the TinyUSB hook) -
+// --- Producers / vendor seam (C-linkage) -------------------------------------
+// orb_log_emit / orb_log_hexdump: transitional `extern "C"` shims the LOG_* macros
+// expand into, so those macros keep compiling from the remaining C TUs. They
+// forward into orb::log and are retired once those TUs become C++.
+// orb_log_tusb_printf: the permanent TinyUSB CFG_TUSB_DEBUG_PRINTF target. Buckets
+// fragments as CAT_TUSB at DEBUG but does NOT prepend a per-call prefix -- TinyUSB
+// emits partial line fragments, so a prefix per call would inject mid-line.
+ORB_C_BEGIN
 void orb_log_emit(int level, int cat, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 void orb_log_hexdump(int level, int cat, const void *data, uint32_t len);
-
-// TinyUSB CFG_TUSB_DEBUG_PRINTF target. Buckets fragments as CAT_TUSB at DEBUG but
-// does NOT prepend a per-call prefix -- TinyUSB emits partial line fragments, so a
-// prefix per call would inject mid-line. v1: gated passthrough.
 int orb_log_tusb_printf(const char *fmt, ...);
+ORB_C_END
 
 // --- Macro API ---------------------------------------------------------------
 #define ORB_LOG_(lvl, cat, ...) orb_log_emit((lvl), (cat), __VA_ARGS__)
@@ -114,9 +130,5 @@ int orb_log_tusb_printf(const char *fmt, ...);
         if ((level) <= ORB_LOG_LEVEL)                           \
             orb_log_hexdump((level), (cat), (ptr), (len));      \
     } while (0)
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  // ORB_LOG_H_

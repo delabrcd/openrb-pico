@@ -76,9 +76,9 @@ set(SOURCES
     src/adapter_ctx.cpp
     src/app_queues.cpp
     src/app_tasks.cpp
-    src/freertos_hooks.c
+    src/freertos_hooks.cpp
     src/dlog.cpp
-    src/orb_log.c
+    src/orb_log.cpp
     src/usb_log.cpp
     ${FATFS_DIR}/ff.c
     ${FATFS_DIR}/ffsystem.c

@@ -566,7 +566,7 @@ static void init() {
     // orb_log owns the debug UART (uart1, GPIO24/25) via dlog and attaches the
     // USB-stick mirror sink; the logger and the TinyUSB logs both drain through it
     // deferred, so no synchronous stdio UART is set up.
-    orb_log_init();
+    orb::log::init();
     LOG_INFO(CAT_SYS, "openrb debug console initialized...");
 
     // Reset-cause instrumentation: what kind of reset brought us here?
