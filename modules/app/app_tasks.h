@@ -1,6 +1,6 @@
 /*
  * Task bootstrap for the FreeRTOS SMP port. The task *bodies* live in their feature
- * modules (C); the *creation* (stack/TCB storage + affinity) is centralised in
+ * modules; the *creation* (stack/TCB storage + affinity) is centralised in
  * app_tasks.cpp via the orb::osal::Task<> template. main() calls app_start_tasks() then
  * vTaskStartScheduler().
  */
@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-// Task entry points (defined in src/main.c). core1 hosts ONLY usb_host_task; every
+// Task entry points (defined in modules/app/main.cpp). core1 hosts ONLY usb_host_task; every
 // other task is pinned to core0.
 void usb_host_task(void *param);
 void usb_device_task(void *param);  // device stack + send drain

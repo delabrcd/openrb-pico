@@ -9,7 +9,7 @@
  *   - Every other task is pinned to core0.
  *
  * The chip runs at 120 MHz (NOT overclocked); configCPU_CLOCK_HZ tracks
- * set_sys_clock_khz(120000) in src/main.c.
+ * set_sys_clock_khz(120000) in modules/app/main.cpp.
  */
 
 #ifndef FREERTOS_CONFIG_H

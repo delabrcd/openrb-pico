@@ -88,7 +88,7 @@ int orb_log_tusb_printf(const char *fmt, ...);
 #define CFG_TUH_HUB 1
 
 // Mass storage HOST: lets us log to a USB flash drive plugged into the hub
-// (src/usb_log.c, via FatFs). Built-in TinyUSB host driver, auto-registered.
+// (usb_log.cpp, via FatFs). Built-in TinyUSB host driver, auto-registered.
 #define CFG_TUH_MSC 1
 
 //--------------------------------------------------------------------

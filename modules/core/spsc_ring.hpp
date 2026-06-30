@@ -1,7 +1,7 @@
 /*
  * SpscRing<T, N> — a single-producer / single-consumer lock-free ring, header-only,
  * BSS-resident, no heap. It centralises the exact discipline currently hand-rolled in
- * three places (src/dlog.c's two per-core rings and src/usb_log.c's core0->core1 ring;
+ * three places (dlog.cpp's two per-core rings and usb_log.cpp's core0->core1 ring;
  * see docs/features/cpp-overhaul.md D3).
  *
  * The contract — reproduced verbatim from the proven C rings, do not weaken it:
@@ -11,7 +11,7 @@
  *   - On Cortex-M0+ a naturally-aligned 32-bit load/store is atomic, and the two cores
  *     are effectively strongly ordered, so no lock/critical-section is needed even
  *     though both cores touch the ring concurrently. This is the same reasoning the
- *     existing rings rely on (src/dlog.c:18-23).
+ *     existing rings rely on (dlog.cpp).
  *   - A full ring DROPS rather than blocks — this is what keeps a chatty core1 from
  *     ever stalling the PIO-USB SOF. write() returns how many elements it accepted.
  *   - The producer publishes a whole batch with a SINGLE head store; the consumer

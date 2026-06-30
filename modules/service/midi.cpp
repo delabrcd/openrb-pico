@@ -1,8 +1,9 @@
 #include "midi.h"
 
+#include <atomic>
+#include <cstdint>
+#include <cstring>
 #include <optional>
-#include <stdint.h>
-#include <string.h>
 
 #include <utility>  // std::to_underlying
 
@@ -23,31 +24,23 @@
 static std::optional<orb::hal::Uart> s_midi_uart;
 
 static int count = 0;
-static uint8_t note_on_message[3] = {std::to_underlying(midi_type_e::NoteOn), 0, 0};
+static std::uint8_t note_on_message[3] = {std::to_underlying(midi_type_e::NoteOn), 0, 0};
 // orb::osal::Timer owns the StaticTimer_t control block (BSS, trivial ctor) and the handle,
 // replacing the old raw TimerHandle_t + StaticTimer_t + xTimerCreateStatic plumbing.
 static orb::osal::Timer s_disconnect_timer;
 
-static volatile bool drums_connected = false;
+// Written and read on core0 (serial_midi_read, on_disconnect_timeout_cb timer task);
+// atomic for consistency with the project's cross-task-state idiom.
+static std::atomic<bool> drums_connected{false};
 static bool drums_sending_active_sense = false;
 
-#define ONE_SECOND 1000
-#define FIFTEEN_MINUTES 90000
+// Timeout durations for the drum-disconnect timer (in milliseconds).
+// NOTE: FIFTEEN_MINUTES was a misnomer in the original code -- the value 90000 ms is
+// 90 seconds, not 15 minutes. The value is preserved exactly to keep behavior identical.
+inline constexpr uint32_t kOneSecondMs = 1000u;
+inline constexpr uint32_t kDisconnectTimeoutMs = 90000u;  // 90 s (not 15 min -- see note above)
 
 static xbox_packet_t out_packet;
-
-static inline midi_type_e get_type_from_status(uint8_t status) {
-    if ((status < 0x80) || (status == std::to_underlying(midi_type_e::Undefined_F4)) ||
-        (status == std::to_underlying(midi_type_e::Undefined_F5)) ||
-        (status == std::to_underlying(midi_type_e::Undefined_FD)))
-        return midi_type_e::InvalidType;  // Data bytes and undefined.
-
-    if (status < 0xf0)
-        // Channel message, remove channel nibble.
-        return static_cast<midi_type_e>(status & 0xf0);
-
-    return static_cast<midi_type_e>(status);
-}
 
 // Timer-service-task callback (kernel-called, C-linkage symbol). Stays a free
 // extern "C" function and stays in RAM (__not_in_flash_func) — it finds its state via
@@ -55,14 +48,14 @@ static inline midi_type_e get_type_from_status(uint8_t status) {
 // left null at create().
 extern "C" void ORB_FAST(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
     (void)xTimer;
-    if (drums_connected) {
+    if (drums_connected.load(std::memory_order_relaxed)) {
         disconnect_instrument(DRUMS, &out_packet);
-        drums_connected = false;
+        drums_connected.store(false, std::memory_order_relaxed);
     }
 }
 
 static void setup_disconnect_timer() {
-    s_disconnect_timer.create("midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES),
+    s_disconnect_timer.create("midi_disc", pdMS_TO_TICKS(kDisconnectTimeoutMs),
                               false /*one-shot*/, on_disconnect_timeout_cb, nullptr);
 }
 
@@ -72,7 +65,7 @@ static void ORB_FAST(reset_disconnect_timer)() {
     // "cancel + re-arm" semantics as the old hardware_alarm code. Block time 0 —
     // don't block in this hot path.
     s_disconnect_timer.change_period(
-        pdMS_TO_TICKS(drums_sending_active_sense ? ONE_SECOND : FIFTEEN_MINUTES), 0);
+        pdMS_TO_TICKS(drums_sending_active_sense ? kOneSecondMs : kDisconnectTimeoutMs), 0);
 }
 
 void serial_midi_init() {
@@ -86,11 +79,11 @@ void serial_midi_init() {
     setup_disconnect_timer();
 }
 
-int ORB_FAST(serial_midi_read)(uint8_t* buf) {
+int ORB_FAST(serial_midi_read)(std::uint8_t* buf) {
     while (s_midi_uart->readable()) {
         bool status_byte = false;
-        uint8_t data = static_cast<uint8_t>(s_midi_uart->read_byte());
-        midi_type_e type = get_type_from_status(data);
+        std::uint8_t data = static_cast<std::uint8_t>(s_midi_uart->read_byte());
+        midi_type_e type = midi_type_from_status(data);
         switch (type) {
 #if ORB_HIHAT_MODE >= 1
             // CC-keyed hi-hat mode also needs ControlChange off the serial path.
@@ -121,9 +114,9 @@ int ORB_FAST(serial_midi_read)(uint8_t* buf) {
         }
 
         if (status_byte) {
-            if (!drums_connected) {
+            if (!drums_connected.load(std::memory_order_relaxed)) {
                 connect_instrument(DRUMS, &out_packet);
-                drums_connected = true;
+                drums_connected.store(true, std::memory_order_relaxed);
             }
             reset_disconnect_timer();
         }

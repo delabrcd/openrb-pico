@@ -1,7 +1,6 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stdint.h>
+#include <cstdint>
 
 // Stream the deferred log to a USB flash drive plugged into the hub, via FatFs
 // over the TinyUSB MSC host. Replaces the onboard-QSPI approach -- USB writes

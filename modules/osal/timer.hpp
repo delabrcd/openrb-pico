@@ -8,7 +8,7 @@
  * block (StaticTimer_t) and creates it statically (no heap), the sibling of
  * orb::osal::Task<N> (inc/osal/task.hpp) and orb::osal::Queue<T,Depth> (inc/osal/queue.hpp).
  * It removes the "declare a StaticTimer_t + a TimerHandle_t + call xTimerCreateStatic +
- * keep the handle around for xTimerChangePeriod" boilerplate that src/midi.c repeated
+ * keep the handle around for xTimerChangePeriod" boilerplate that midi.cpp repeated
  * for its drum-disconnect timer (see docs/features/cpp-overhaul.md D1).
  *
  * Same discipline as Task/Queue: the storage member is the FreeRTOS

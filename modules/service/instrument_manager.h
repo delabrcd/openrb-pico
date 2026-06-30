@@ -4,10 +4,9 @@
 
 #include "xbox_one_protocol.h"
 
-// Instrument identity. Unscoped enum (not enum class) on purpose: it is part of the C
-// API its C callers (drums.c, guitar.c, midi.cpp, main.c) use bare -- DRUMS, GUITAR_ONE,
-// etc. FIRST_INSTRUMENT == 0 so the values double as contiguous array indices; the
-// N_INSTRUMENTS sentinel is the count.
+// Instrument identity. The enumerators are used bare throughout (DRUMS, GUITAR_ONE, etc.)
+// so they are imported to global scope below. FIRST_INSTRUMENT == 0 so the values double
+// as contiguous array indices; the N_INSTRUMENTS sentinel is the count.
 enum class instruments_e : std::uint8_t {
     FIRST_INSTRUMENT,
     GUITAR_ONE = FIRST_INSTRUMENT,

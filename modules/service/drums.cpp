@@ -10,7 +10,7 @@
  * (produced on core1 by drums_read_midi_host) and the core0 serial-MIDI parser -- and
  * publishes an Xbox drum input packet, deduped per lane, with TRIGGER_HOLD_MS auto-clear
  * and an ADAPTER_OUT_INTERVAL emit rate. Behaviour is preserved byte-for-byte vs the
- * previous drums.c; the MIDI_MAP switch is replaced by a constexpr note->output table
+ * prior drums implementation; the MIDI_MAP switch is replaced by a constexpr note->output table
  * built from the SAME inc/midi_map.h X-macro (so the mapping is identical by construction).
  *
  * Hi-hat: everything the alternate (CC-keyed) mode adds is gated on ORB_HIHAT_MODE
@@ -133,18 +133,6 @@ void ORB_FAST(update_drum_state_with_midi_input)(Output out, std::uint8_t state,
     }
 }
 
-inline midi_type_e get_type_from_status(std::uint8_t status) {
-    if ((status < 0x80) || (status == std::to_underlying(midi_type_e::Undefined_F4)) ||
-        (status == std::to_underlying(midi_type_e::Undefined_F5)) ||
-        (status == std::to_underlying(midi_type_e::Undefined_FD)))
-        return midi_type_e::InvalidType;  // Data bytes and undefined.
-
-    if (status < 0xf0)
-        // Channel message, remove channel nibble.
-        return static_cast<midi_type_e>(status & 0xf0);
-
-    return static_cast<midi_type_e>(status);
-}
 
 #if ORB_HIHAT_MODE >= 2
 // Catch a manual misconfig at build time: threshold +/- hysteresis must stay within
@@ -197,7 +185,7 @@ class DrumEngine {
 
         midi_note_t n;
         while (midi_note_recv(&n)) {
-            type = get_type_from_status(n.data[0]);
+            type = midi_type_from_status(n.data[0]);
             if (type == midi_type_e::NoteOn) note_on(n.data[1], n.data[2]);
 #if ORB_HIHAT_MODE >= 1
             else if (type == midi_type_e::ControlChange)
@@ -206,7 +194,7 @@ class DrumEngine {
         }
 
         while (serial_midi_read(pending_msg)) {
-            type = get_type_from_status(pending_msg[0]);
+            type = midi_type_from_status(pending_msg[0]);
             if (type == midi_type_e::NoteOn) note_on(pending_msg[1], pending_msg[2]);
 #if ORB_HIHAT_MODE >= 1
             else if (type == midi_type_e::ControlChange)

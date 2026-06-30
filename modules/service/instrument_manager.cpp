@@ -76,7 +76,7 @@ inline const char *instrument_name(instruments_e instrument) {
 // instrument, kept in flash (__in_flash) and byte-identical to the original C tables. Both
 // tables are [N_INSTRUMENTS][22]: every notification copies the full 22-byte row (the
 // drop-out rows are zero-padded past their 7 meaningful bytes), matching the original
-// UTIL_NUM(row) == 22 length for both connect and disconnect.
+// 22 entries for both connect and disconnect.
 const std::uint8_t ORB_FLASH instrument_notify[kInstrumentCount][22] = {
     {0x22, 0x00, 0x00, 0x12, 0x00, 0x01, 0x14, 0x30, 0x00, 0x87, 0x67,
      0x00, 0x75, 0x00, 0x69, 0x00, 0x74, 0x00, 0x61, 0x00, 0x72, 0x00},

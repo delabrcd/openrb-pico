@@ -6,10 +6,11 @@
 #include <pico/multicore.h>
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include <utility>  // std::to_underlying
 
@@ -46,8 +47,8 @@
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
 
-#define HOST_CONTROLLER_ID 1
-#define FIRST_XBOX_CONTROLLER_IDX 0
+inline constexpr uint8_t kHostControllerId = 1u;
+// FIRST_XBOX_CONTROLLER_IDX removed -- unused constant.
 
 // GPIO hardware objects — emplaced at init time (not as globals) per the hardware-object
 // lifetime rule in docs/architecture/modern-cpp.md: constructors that touch the chip must
@@ -78,14 +79,13 @@ static xbox_packet_t host_out_packet;
 // real input (timer_hw->timerawl -- board_millis()/sleep hang core1, see usb_host_task);
 // g_host_rx_count ticks on every received packet so the recovery loop can tell a fresh
 // heartbeat (refill the attempt budget) from us merely bumping the silence timer.
-static volatile uint32_t g_host_last_rx_us = 0;
-static volatile uint32_t g_host_rx_count = 0;
-// Set by the core1 runtime recovery while it is actively trying to bring a lost
-// controller back via hub RESET#; read by recovery_reboot_task (core0) so the
-// watchdog-reboot path defers to this non-reboot recovery and only fires once it
-// gives up. Single volatile bool -> lock-free on RP2040. False on boards without a
-// hub-reset pin (FEATHER), leaving the reboot path's behaviour unchanged there.
-static volatile bool g_runtime_recovery_engaged = false;
+static constexpr std::memory_order kRlx = std::memory_order_relaxed;
+static std::atomic<uint32_t> g_host_last_rx_us{0};
+// g_host_rx_count: written core1 (xboxh_packet_received_cb), read core1
+// (host_recovery_task) -- single-core but atomic for symmetric treatment.
+static std::atomic<uint32_t> g_host_rx_count{0};
+// Read core0 (recovery_reboot_task), written core1 (host_recovery_task) -- genuinely cross-core.
+static std::atomic<bool> g_runtime_recovery_engaged{false};
 
 // Defined further down (init-time hub reset); reused at runtime by usb_host_task.
 static void reset_usb_hub(void);
@@ -143,7 +143,7 @@ void xboxh_mount_cb(uint8_t dev_addr, uint8_t instance) {
     orb::service::adapter().set_controller(instance, dev_addr);
     // Grant a fresh silence window so the runtime recovery (usb_host_task) doesn't
     // mistake the gap between mount and the first input report for a wedged hub.
-    g_host_last_rx_us = timer_hw->timerawl;
+    g_host_last_rx_us.store(timer_hw->timerawl, kRlx);
 }
 
 void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
@@ -181,8 +181,8 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     if (idx != orb::service::adapter().controller_idx()) return;
     if (ndata < sizeof(frame_t)) return;
     orb::service::adapter().set_alive(true);  // a real packet arrived -> controller is alive, not a zombie
-    g_host_last_rx_us = timer_hw->timerawl;  // feed the runtime-recovery silence timer (core1)
-    g_host_rx_count++;                       // tick so recovery can detect a fresh heartbeat
+    g_host_last_rx_us.store(timer_hw->timerawl, kRlx);  // feed the runtime-recovery silence timer (core1)
+    g_host_rx_count.store(g_host_rx_count.load(kRlx) + 1u, kRlx);  // tick so recovery can detect a fresh heartbeat
     LOG_TRC(CAT_WIRE, "IN FROM CONTROLLER: %s", get_command_name(std::to_underlying(data->frame.command)));
     switch (orb::service::adapter().state()) {
         case adapter_state_t::STATE_AUTHENTICATING:
@@ -330,8 +330,8 @@ static void configure_host() {
     // find an unused channel
     pio_cfg.tx_ch = dma_claim_unused_channel(true);
     dma_channel_unclaim(pio_cfg.tx_ch);
-    tuh_configure(HOST_CONTROLLER_ID, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
-    tuh_init(HOST_CONTROLLER_ID);
+    tuh_configure(kHostControllerId, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
+    tuh_init(kHostControllerId);
     LOG_INFO(CAT_HOST, "finished configuring usb host");
 
     set_usb_host(true);
@@ -370,10 +370,10 @@ static void configure_host() {
 //     CMD_STATUS keep-alive (~20 s, which refreshes g_host_last_rx_us), so 30 s clears
 //     the heartbeat with margin. In active play input streams sub-second, so neither
 //     path fires spuriously there.
-#define HOST_RECOV_ERR_STREAK 100u       // ~1.25 s of continuous IN failures -> wedged (fast)
-#define HOST_RECOV_SILENCE_US 30000000u  // no packet at all this long -> wedged (backstop)
-#define HOST_RECOV_GRACE_US 3000000u     // wait this long between resets for re-enumeration
-#define HOST_RECOV_MAX 3u                // bounded so a genuine unplug can't thrash the hub forever
+inline constexpr uint32_t kHostRecovErrStreak = 100u;     // ~1.25 s of continuous IN failures -> wedged (fast)
+inline constexpr uint32_t kHostRecovSilenceUs = 30000000u; // no packet at all this long -> wedged (backstop)
+inline constexpr uint32_t kHostRecovGraceUs = 3000000u;    // wait this long between resets for re-enumeration
+inline constexpr uint8_t  kHostRecovMax = 3u;              // bounded so a genuine unplug can't thrash the hub forever
 static void host_recovery_task(void) {
     static bool recovering = false;       // currently trying to get a lost controller back
     static bool gave_up = false;          // exhausted attempts; wait for real input before re-arming
@@ -384,7 +384,7 @@ static void host_recovery_task(void) {
     uint32_t now = timer_hw->timerawl;
 
     // A fresh heartbeat means a healthy controller: exit recovery and refill the budget.
-    uint32_t rxc = g_host_rx_count;
+    uint32_t rxc = g_host_rx_count.load(kRlx);
     if (rxc != last_rx_count) {
         last_rx_count = rxc;
         recovering = false;
@@ -392,35 +392,35 @@ static void host_recovery_task(void) {
         attempts = 0;
     }
 
-    bool wedged = xboxh_in_error_streak() >= HOST_RECOV_ERR_STREAK ||
-                  (uint32_t)(now - g_host_last_rx_us) > HOST_RECOV_SILENCE_US;
+    bool wedged = xboxh_in_error_streak() >= kHostRecovErrStreak ||
+                  (uint32_t)(now - g_host_last_rx_us.load(kRlx)) > kHostRecovSilenceUs;
 
     // Detect a loss: a controller mounted this boot but has since gone wedged. A clean
     // unplug also looks like this, so attempts are bounded (gave_up) until input returns.
     if (!recovering && !gave_up && orb::service::adapter().seen() && wedged) {
         recovering = true;
         attempts = 0;
-        last_attempt_us = now - HOST_RECOV_GRACE_US;  // act on the first pass
+        last_attempt_us = now - kHostRecovGraceUs;  // act on the first pass
     }
 
     if (recovering) {
-        if (attempts >= HOST_RECOV_MAX) {
+        if (attempts >= kHostRecovMax) {
             // Couldn't bring it back -> stand down and let the reboot path (last resort)
             // decide. Stay quiet until a real packet refills the budget (got input above).
             recovering = false;
             gave_up = true;
-        } else if ((uint32_t)(now - last_attempt_us) >= HOST_RECOV_GRACE_US) {
+        } else if ((uint32_t)(now - last_attempt_us) >= kHostRecovGraceUs) {
             attempts++;
             last_attempt_us = now;
-            g_host_last_rx_us = now;       // suppress the silence backstop during re-enumeration
+            g_host_last_rx_us.store(now, kRlx);  // suppress the silence backstop during re-enumeration
             xboxh_clear_error_streak();    // fresh count; GRACE lets re-enum land before it re-trips
             LOG_WARN(CAT_RECOV, "HOST RECOVERY: controller wedged -> hub reset %u/%u",
-                     (unsigned)attempts, (unsigned)HOST_RECOV_MAX);
+                     (unsigned)attempts, (unsigned)kHostRecovMax);
             reset_usb_hub();  // RESET# pulse (busy_wait_ms, core1-safe); TinyUSB re-enumerates
         }
     }
 
-    g_runtime_recovery_engaged = recovering;  // gate the core0 watchdog-reboot path
+    g_runtime_recovery_engaged.store(recovering, kRlx);  // gate the core0 watchdog-reboot path
 }
 #else
 static inline void host_recovery_task(void) {}  // no hub / no RESET# pin on this board
@@ -516,10 +516,10 @@ static void reset_usb_hub(void) {
 // and never reboot again. If nothing ever mounts there's no controller to recover, so
 // we don't reboot then either. The attempt count rides through our watchdog reboots
 // (scratch[7]) but resets on a fresh power-on / physical reset, so we never loop forever.
-#define RECOV_SCRATCH 7u  // scratch[4..6] are used by the SDK/bootrom watchdog path; [7] is free with pc=0 reboots
-#define RECOV_MAGIC 0x5A5A0000u
-#define RECOV_MAX 4u
-#define RECOV_SILENT_MS 3000u  // a mounted-but-silent controller this long is a zombie
+inline constexpr uint32_t kRecovScratch = 7u;    // scratch[4..6] are used by the SDK/bootrom watchdog path; [7] is free with pc=0 reboots
+inline constexpr uint32_t kRecovMagic = 0x5A5A0000u;
+inline constexpr uint32_t kRecovMax = 4u;
+inline constexpr uint32_t kRecovSilentMs = 3000u; // a mounted-but-silent controller this long is a zombie
 static uint32_t g_recov_count = 0;
 
 static void recovery_reboot_task(void) {
@@ -531,11 +531,11 @@ static void recovery_reboot_task(void) {
     // RESET# to bring a lost controller back, hold off (and reset our debounce so the
     // reboot timer starts fresh once it stands down). Only fall back to a watchdog
     // reboot if that runtime recovery exhausts its attempts.
-    if (g_runtime_recovery_engaged) { silent_since_ms = 0; return; }
+    if (g_runtime_recovery_engaged.load(kRlx)) { silent_since_ms = 0; return; }
 
     if (orb::service::adapter().state() >= adapter_state_t::STATE_RUNNING) {  // authenticated -> controller now optional
         disarmed = true;
-        watchdog_hw->scratch[RECOV_SCRATCH] = 0;  // clear so the next reset starts fresh
+        watchdog_hw->scratch[kRecovScratch] = 0;  // clear so the next reset starts fresh
         if (g_recov_count) LOG_WARN(CAT_RECOV, "RECOVERY: authenticated after %lu reboot(s)",
                                     (unsigned long)g_recov_count);
         return;
@@ -547,18 +547,18 @@ static void recovery_reboot_task(void) {
     // Debounce a brief blip (re-enumeration) before acting.
     uint32_t now = board_millis();
     if (silent_since_ms == 0) silent_since_ms = now ? now : 1u;
-    if ((uint32_t)(now - silent_since_ms) < RECOV_SILENT_MS) return;
+    if ((uint32_t)(now - silent_since_ms) < kRecovSilentMs) return;
 
-    if (g_recov_count >= RECOV_MAX) {  // a zombie that won't thaw across retries
+    if (g_recov_count >= kRecovMax) {  // a zombie that won't thaw across retries
         disarmed = true;
-        watchdog_hw->scratch[RECOV_SCRATCH] = 0;
-        LOG_ERR(CAT_RECOV, "RECOVERY: controller stayed silent after %u reboots; replug needed", RECOV_MAX);
+        watchdog_hw->scratch[kRecovScratch] = 0;
+        LOG_ERR(CAT_RECOV, "RECOVERY: controller stayed silent after %u reboots; replug needed", (unsigned)kRecovMax);
         return;
     }
     // Probabilistic: reboot and try again -- a later attempt usually lands a live one.
-    watchdog_hw->scratch[RECOV_SCRATCH] = RECOV_MAGIC | (g_recov_count + 1u);
+    watchdog_hw->scratch[kRecovScratch] = kRecovMagic | (g_recov_count + 1u);
     LOG_WARN(CAT_RECOV, "RECOVERY: controller silent pre-auth -> watchdog reboot %lu/%u",
-             (unsigned long)(g_recov_count + 1u), RECOV_MAX);
+             (unsigned long)(g_recov_count + 1u), (unsigned)kRecovMax);
     dlog_drain();  // flush the log before we go
     watchdog_reboot(0, 0, 0);
     while (1) tight_loop_contents();
@@ -598,12 +598,12 @@ static void init() {
         // *we* triggered this reboot via watchdog. A power-on / physical reset clears
         // it to 0 so the user always gets a fresh recovery budget.
         if (watchdog_caused_reboot() &&
-            (watchdog_hw->scratch[RECOV_SCRATCH] & 0xFFFF0000u) == RECOV_MAGIC) {
-            g_recov_count = watchdog_hw->scratch[RECOV_SCRATCH] & 0xFFFFu;
+            (watchdog_hw->scratch[kRecovScratch] & 0xFFFF0000u) == kRecovMagic) {
+            g_recov_count = watchdog_hw->scratch[kRecovScratch] & 0xFFFFu;
         } else {
             g_recov_count = 0;
         }
-        watchdog_hw->scratch[RECOV_SCRATCH] = 0;
+        watchdog_hw->scratch[kRecovScratch] = 0;
         LOG_INFO(CAT_RECOV, "RECOVERY: attempt count = %lu", (unsigned long)g_recov_count);
     }
 

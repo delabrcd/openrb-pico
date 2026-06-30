@@ -2,7 +2,7 @@
 
 // Cross-core adapter state shared between core0 (USB device stack / device-RX
 // callbacks) and core1 (USB host stack / controller mount-umount-RX). Previously a
-// loose set of `volatile` globals in main.c; consolidated here as a clean modern-C++
+// loose set of `volatile` globals in main.cpp; consolidated here as a clean modern-C++
 // service: orb::service::AdapterState, reached through the orb::service::adapter()
 // singleton accessor. No extern "C" facade -- every consumer is C++ and calls the
 // object directly.

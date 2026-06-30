@@ -1,9 +1,9 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 // Unified deferred logging front end. Sits ON TOP OF the per-core SPSC ring in
-// src/dlog.c (unchanged) and adds: 5 log levels, category tags, a producer-side
+// dlog.cpp and adds: 5 log levels, category tags, a producer-side
 // timestamp, a column-aligned line format, and optional inline ANSI color.
 //
 // Format on produce: each call snapshots timer_hw->timerawl + cpuid on the

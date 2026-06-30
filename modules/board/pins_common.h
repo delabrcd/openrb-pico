@@ -1,6 +1,6 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 // PINS_COUNT / NUM_DIGITAL_PINS / NUM_ANALOG_INPUTS / NUM_ANALOG_OUTPUTS / ADC_RESOLUTION
 // deleted: dead Arduino-variant macros with no consumer in modules/ or external/ (verified).

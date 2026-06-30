@@ -29,8 +29,8 @@ static orb::core::SpscRing<uint8_t, ULOG_SIZE> s_ulog;
 // for the UART sink; LOG.TXT must stay clean. We skip ESC '[' ... <final byte>.
 // usb_log_write is the single producer (core0 drain), so this static state is not
 // shared across cores; it persists across calls so a sequence may span chunks.
-enum { ANSI_NORMAL = 0, ANSI_ESC, ANSI_CSI };
-static uint8_t s_ansi_state;
+enum class AnsiState : uint8_t { NORMAL = 0, ESC, CSI };
+static AnsiState s_ansi_state;
 
 void usb_log_write(const uint8_t *data, uint32_t len) {
     // Strip ANSI, accumulating kept bytes and pushing them to the ring in batches so a
@@ -41,15 +41,15 @@ void usb_log_write(const uint8_t *data, uint32_t len) {
     for (uint32_t i = 0; i < len; i++) {
         uint8_t c = data[i];
         switch (s_ansi_state) {
-            case ANSI_ESC:
-                if (c == '[') { s_ansi_state = ANSI_CSI; continue; }
-                s_ansi_state = ANSI_NORMAL;  // lone ESC: drop it, keep this byte
+            case AnsiState::ESC:
+                if (c == '[') { s_ansi_state = AnsiState::CSI; continue; }
+                s_ansi_state = AnsiState::NORMAL;  // lone ESC: drop it, keep this byte
                 break;
-            case ANSI_CSI:
-                if (c >= 0x40 && c <= 0x7e) s_ansi_state = ANSI_NORMAL;  // final byte
-                continue;                                                // skip params + final
-            default:  // ANSI_NORMAL
-                if (c == 0x1b) { s_ansi_state = ANSI_ESC; continue; }
+            case AnsiState::CSI:
+                if (c >= 0x40 && c <= 0x7e) s_ansi_state = AnsiState::NORMAL;  // final byte
+                continue;                                                        // skip params + final
+            case AnsiState::NORMAL:
+                if (c == 0x1b) { s_ansi_state = AnsiState::ESC; continue; }
                 break;
         }
         out[k++] = c;

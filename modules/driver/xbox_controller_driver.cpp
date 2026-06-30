@@ -28,24 +28,24 @@
 #include "orb_log.h"
 #include "tusb_option.h"
 
-// Official controllers
-#define XBOX_VID1 0x045E       // Microsoft Corporation
-#define XBOX_ONE_PID1 0x02D1   // Microsoft X-Box One pad
-#define XBOX_ONE_PID2 0x02DD   // Microsoft X-Box One pad (Firmware 2015)
-#define XBOX_ONE_PID3 0x02E3   // Microsoft X-Box One Elite pad
-#define XBOX_ONE_PID4 0x02EA   // Microsoft X-Box One S pad
-#define XBOX_ONE_PID13 0x0B0A  // Microsoft X-Box One Adaptive Controller
-#define XBOX_ONE_PID14 0x0B12  // Microsoft X-Box Core Controller
-
-/* Names we give to the 3 XboxONE pipes */
-#define XBOX_ONE_CONTROL_PIPE 0
-#define XBOX_ONE_OUTPUT_PIPE 1
-#define XBOX_ONE_INPUT_PIPE 2
-
-#define XBOX_MAX_CONTROLLERS 1
-#define XBOX_ONE_MAX_ENDPOINTS 2
-
 namespace {
+
+// Official controller VIDs/PIDs.
+inline constexpr uint16_t kXboxVid1 = 0x045E;       // Microsoft Corporation
+inline constexpr uint16_t kXboxOnePid1 = 0x02D1;    // Microsoft X-Box One pad
+inline constexpr uint16_t kXboxOnePid2 = 0x02DD;    // Microsoft X-Box One pad (Firmware 2015)
+inline constexpr uint16_t kXboxOnePid3 = 0x02E3;    // Microsoft X-Box One Elite pad
+inline constexpr uint16_t kXboxOnePid4 = 0x02EA;    // Microsoft X-Box One S pad
+inline constexpr uint16_t kXboxOnePid13 = 0x0B0A;   // Microsoft X-Box One Adaptive Controller
+inline constexpr uint16_t kXboxOnePid14 = 0x0B12;   // Microsoft X-Box Core Controller
+
+// Logical pipe indices (for reference; not used as array indices in current code).
+inline constexpr uint8_t kXboxOneControlPipe = 0;
+inline constexpr uint8_t kXboxOneOutputPipe = 1;
+inline constexpr uint8_t kXboxOneInputPipe = 2;
+
+inline constexpr uint8_t kXboxMaxControllers = 1;
+inline constexpr uint8_t kXboxOneMaxEndpoints = 2;
 
 struct xbox_interface_t {
     uint8_t daddr;
@@ -68,7 +68,7 @@ struct xbox_interface_t {
 };
 
 CFG_TUH_MEM_SECTION
-tu_static std::array<xbox_interface_t, XBOX_MAX_CONTROLLERS> _xbox_itf;
+tu_static std::array<xbox_interface_t, kXboxMaxControllers> _xbox_itf;
 
 xbox_interface_t *find_new_itf(void) {
     for (auto &itf : _xbox_itf) {
@@ -79,7 +79,7 @@ xbox_interface_t *find_new_itf(void) {
 }
 
 TU_ATTR_ALWAYS_INLINE static inline xbox_interface_t *get_xbox_itf(uint8_t daddr, uint8_t idx) {
-    TU_ASSERT(daddr > 0 && idx < XBOX_MAX_CONTROLLERS, nullptr);
+    TU_ASSERT(daddr > 0 && idx < kXboxMaxControllers, nullptr);
     xbox_interface_t *p_hid = &_xbox_itf[idx];
     return (p_hid->daddr == daddr) ? p_hid : nullptr;
 }
@@ -142,14 +142,14 @@ bool print_interface(const tusb_desc_interface_t *desc_itf, uint8_t daddr) {
 
 bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
     switch (vid) {
-        case XBOX_VID1:
+        case kXboxVid1:
             switch (pid) {
-                case XBOX_ONE_PID1:
-                case XBOX_ONE_PID2:
-                case XBOX_ONE_PID3:
-                case XBOX_ONE_PID4:
-                case XBOX_ONE_PID13:
-                case XBOX_ONE_PID14:
+                case kXboxOnePid1:
+                case kXboxOnePid2:
+                case kXboxOnePid3:
+                case kXboxOnePid4:
+                case kXboxOnePid13:
+                case kXboxOnePid14:
                     TU_LOG3("Valid Controller: PID: %04x VID: %04x\r\n", vid, pid);
                     return true;
                 default:
@@ -162,7 +162,7 @@ bool xbox_valid_controller(uint16_t vid, uint16_t pid) {
 }
 
 void wait_for_tx_complete(uint8_t dev_addr, uint8_t ep_out) {
-    // Non-blocking pump (see usb_log.c wait_for_disk_io): under OPT_OS_FREERTOS a plain
+    // Non-blocking pump (see usb_log.cpp wait_for_disk_io): under OPT_OS_FREERTOS a plain
     // tuh_task() would block on the host event queue instead of spinning the TX out.
     while (usbh_edpt_busy(dev_addr, ep_out)) tuh_task_ext(0, false);
 }
@@ -214,7 +214,7 @@ bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    if ((p_itf->PID == XBOX_ONE_PID4 || p_itf->PID == 0x0b00 || p_itf->PID == XBOX_ONE_PID14)) {
+    if ((p_itf->PID == kXboxOnePid4 || p_itf->PID == 0x0b00 || p_itf->PID == kXboxOnePid14)) {
         TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, xboxone_s_init.data(), sizeof(xboxone_s_init)));
         wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
     }
@@ -455,7 +455,7 @@ bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_
 }
 
 void xboxh_close(uint8_t daddr) {
-    for (uint8_t i = 0; i < XBOX_MAX_CONTROLLERS; i++) {
+    for (uint8_t i = 0; i < kXboxMaxControllers; i++) {
         xbox_interface_t *p_controller = &_xbox_itf[i];
         if (!p_controller) continue;
         if (p_controller->daddr == daddr) {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 // Deferred logger for debugging the timing-critical PIO-USB host on core1.
 // Each core formats into its OWN RAM ring buffer (SpscRing<char,N>) with no
@@ -8,7 +8,7 @@
 // The cross-core producer/consumer relationship needs no lock (aligned 32-bit cursor
 // loads/stores are atomic on M0+). core1's ring has a single producer (usb_host_task);
 // core0's ring is multi-producer, so dlog_printf serializes core0 writes with a brief
-// core0-only interrupt mask (see src/dlog.cpp) -- never disabling interrupts on core1.
+// core0-only interrupt mask (see dlog.cpp) -- never disabling interrupts on core1.
 // This avoids starving the core1 USB SOF interrupt the way blocking printf does.
 
 // Plain C++ free functions (every consumer is a C++ TU); defined in dlog.cpp.

@@ -1,7 +1,6 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stdint.h>
+#include <cstdint>
 
 #include "xbox_one_protocol.h"  // xbox_packet_t
 

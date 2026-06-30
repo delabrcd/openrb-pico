@@ -54,7 +54,7 @@ enum class Err : uint8_t {
 };
 
 template <typename T, typename E = Err>
-class Result {
+class [[nodiscard]] Result {
     static_assert(std::is_trivially_copyable<T>::value,
                   "Result<T>: T must be trivially copyable (no-heap embedded policy)");
     static_assert(std::is_trivially_copyable<E>::value, "Result<T,E>: E must be trivially copyable");
@@ -99,7 +99,7 @@ class Result {
 // operations that today return bool — Result<void> lets them carry an Err reason while
 // staying TRY-able.
 template <typename E>
-class Result<void, E> {
+class [[nodiscard]] Result<void, E> {
     static_assert(std::is_trivially_copyable<E>::value, "Result<void,E>: E must be trivially copyable");
 
    public:

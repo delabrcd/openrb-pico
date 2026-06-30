@@ -4,7 +4,7 @@
  * symbol, so that entry point stays an extern "C" free function returning the same
  * usbh_class_driver_t const* + count as the C original. The table itself becomes a
  * constexpr std::array, but every entry is an aggregate of C function pointers (midih_* from
- * usb_midi_host.c, xboxh_* from xbox_controller_driver.c) -- the stored bytes are unchanged.
+ * usb_midi_host (C seam), xboxh_* from xbox_controller_driver.cpp) -- the stored bytes are unchanged.
  *
  * C seam: usb_midi_host.h carries its own __cplusplus extern "C" guard, and
  * xbox_controller_driver.h self-guards its xboxh_* declarations with its own extern "C"

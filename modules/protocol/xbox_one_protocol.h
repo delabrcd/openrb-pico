@@ -1,9 +1,8 @@
 #pragma once
 
-#include <assert.h>
+#include <cassert>
 #include <cstddef>
-#include <stddef.h>
-#include <stdint.h>
+#include <cstdint>
 
 #include "orb_debug.h"
 
@@ -224,7 +223,7 @@ static_assert(offsetof(xbox_packet_t, length) == XBOX_ONE_EP_MAXPKTSIZE,
 
 // --- Packet builders --------------------------------------------------------------------
 // C-compatible (`static inline`) factories that construct the exact same bytes as the
-// designated-initializer blocks they replace in xbox_controller_driver.c. They do NOT
+// designated-initializer blocks they replace in xbox_controller_driver.cpp. They do NOT
 // change xbox_packet_t / power_report_t / led_mode_command_t layout -- they just build a
 // value of the existing packed aggregate type.
 
