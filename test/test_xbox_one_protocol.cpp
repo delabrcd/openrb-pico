@@ -181,7 +181,10 @@ TEST_CASE("fill_drum_input_from_controller golden bytes") {
 // fill_guitar_input_from_hid_report
 // ---------------------------------------------------------------------------------------
 TEST_CASE("fill_guitar_input_from_hid_report golden bytes") {
-    g_host_fake_millis = 0x12345678;  // pinned so triggered_time is assertable
+    // Pin the fake clock so triggered_time is assertable.
+    // now_us() returns g_host_fake_us; triggered_time = now_us() / 1000.
+    // Use 0x12345u ms -> 0x12345u * 1000 us = 74565000 us (fits in uint32_t).
+    g_host_fake_us = 0x12345u * 1000u;
 
     // Raw 7-byte PDP/legacy guitar HID report.
     //  byte0 cmd_id       = 0x00
@@ -222,14 +225,14 @@ TEST_CASE("fill_guitar_input_from_hid_report golden bytes") {
     check_bytes(out.buffer, golden.data(), golden.size());
 
     CHECK(out.length == sizeof(xb_one_guitar_input_pkt_t));
-    CHECK(out.triggered_time == 0x12345678);
+    CHECK(out.triggered_time == 0x12345u);  // g_host_fake_us / 1000
     CHECK(out.handled == 0);
 }
 
 // A second guitar case: strum-center clears the strum dpad bit, no tilt, select bit
 // comes purely from the report's own select bit (set here), whammy mid-scale.
 TEST_CASE("fill_guitar_input_from_hid_report strum-center / select-from-report") {
-    g_host_fake_millis = 0;
+    g_host_fake_us = 0;
 
     //  byte1 = 0x42 -> red=1 (b1), select=1 (b6); green/yellow/blue/orange/start = 0
     //  byte3 strum_bits = 0x08 -> dpadState2 = 0 (center)

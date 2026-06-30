@@ -1,9 +1,8 @@
 #include <bsp/board_api.h>
 #include <device/usbd.h>
 #include <hardware/clocks.h>
-#include <hardware/gpio.h>
-#include <hardware/uart.h>
 #include <host/usbh.h>
+#include <optional>
 #include <pico/multicore.h>
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
@@ -18,6 +17,9 @@
 #include "task.h"
 
 #include "app_tasks.h"
+
+#include "core/section.hpp"
+#include "hal/platform.hpp"
 
 #include "adapter.h"
 #include "app_queues.h"
@@ -46,6 +48,14 @@
 
 #define HOST_CONTROLLER_ID 1
 #define FIRST_XBOX_CONTROLLER_IDX 0
+
+// GPIO hardware objects — emplaced at init time (not as globals) per the hardware-object
+// lifetime rule in docs/architecture/modern-cpp.md: constructors that touch the chip must
+// not run before main() sets the system clock. std::optional has a trivial constructor so
+// these land in BSS with no global-ctor.
+static std::optional<orb::hal::GpioOut> s_led;         // auth/status LED
+static std::optional<orb::hal::GpioOd>  s_hub_rst;     // CH334R RESET# (CUSTOM board only)
+static std::optional<orb::hal::GpioOut> s_5v_en;       // 5V enable (FEATHER board only)
 
 // Cross-core adapter state (state, tracked controller, liveness/seen/reinit flags)
 // now lives behind the adapter_ctx module -- see inc/adapter_ctx.h for the concurrency
@@ -85,7 +95,7 @@ static void reset_usb_hub(void);
 // alarm event that core never receives), which stalls enumeration right after
 // attach. Override the weak delay with a timer-based busy-wait that works on
 // either core and keeps the PIO SOF interrupt running.
-void __not_in_flash_func(tusb_time_delay_ms_api)(uint32_t ms) {
+void ORB_FAST(tusb_time_delay_ms_api)(uint32_t ms) {
     // Lock-free busy-wait on the raw timer: time_us_64()/busy_wait()/sleep_ms()
     // take a spin lock / wait on an alarm that hangs on the core running
     // Pico-PIO-USB, so they cannot be used on core1. timerawl is lock-free.
@@ -97,17 +107,12 @@ void __not_in_flash_func(tusb_time_delay_ms_api)(uint32_t ms) {
 }
 
 
-static inline void set_auth_led(bool val) { gpio_put(orb::board::pin_led, val); }
+static inline void set_auth_led(bool val) { if (s_led) s_led->set(val); }
 
 static inline void set_usb_host(bool on) {
 #if ORB_BOARD_ID == ORB_BOARD_ID_FEATHER
-    static bool configured = false;
-    if (!configured) {
-        gpio_init(orb::board::pin_5v_en);
-        gpio_set_dir(orb::board::pin_5v_en, GPIO_OUT);
-        configured = true;
-    }
-    gpio_put(orb::board::pin_5v_en, on);
+    if (!s_5v_en) s_5v_en.emplace(orb::board::pin_5v_en);
+    s_5v_en->set(on);
 #else
     (void)on;
 #endif
@@ -487,16 +492,15 @@ void usb_host_task(void *param) {
 // Schottky-diode-to-MCU arrangement).
 static void reset_usb_hub(void) {
 #if ORB_BOARD_ID == ORB_BOARD_ID_CUSTOM_REV_0_1
-    gpio_init(orb::board::pin_usb_hub_rst);
-    gpio_set_dir(orb::board::pin_usb_hub_rst, GPIO_OUT);
-    gpio_put(orb::board::pin_usb_hub_rst, 0);  // assert RESET# low (>4us; we hold 10ms)
-    // busy_wait_ms, NOT sleep_ms: this runs in init() BEFORE vTaskStartScheduler(), and
-    // with configSUPPORT_PICO_TIME_INTEROP the SDK sleep_ms blocks at the FreeRTOS level
-    // (xEventGroupWaitBits) -- which never wakes pre-scheduler, deadlocking core0 (so the
-    // scheduler never starts and core1 never launches). busy_wait_ms is a pure timer wait.
-    busy_wait_ms(10);
-    gpio_set_dir(orb::board::pin_usb_hub_rst, GPIO_IN);  // release to Hi-Z; pull-up -> high, no CDP
-    busy_wait_ms(50);                        // wait out the hub POR (~5-14ms) before host init
+    // Emplace once; subsequent calls (runtime recovery) reuse the already-configured pin.
+    if (!s_hub_rst) s_hub_rst.emplace(orb::board::pin_usb_hub_rst);
+    orb::hal::Clock clk;
+    s_hub_rst->assert_low();  // drive RESET# low (>4us; we hold 10ms)
+    // hal::Clock::delay_ms wraps busy_wait_ms — pure timer wait, safe pre-scheduler and on
+    // core1. Never sleep_ms: that blocks via FreeRTOS before the scheduler is up (deadlock).
+    clk.delay_ms(10);
+    s_hub_rst->release();     // release to Hi-Z; external pull-up -> high, no CDP mode
+    clk.delay_ms(50);         // wait out the hub POR (~5-14ms) before host init
 #endif
 }
 
@@ -610,8 +614,8 @@ static void init() {
     xbox_fifo_init();
     LOG_INFO(CAT_SYS, "finished initializing xbox fifo...");
 
-    gpio_init(orb::board::pin_led);
-    gpio_set_dir(orb::board::pin_led, true);
+    // LED: push-pull output, start low (auth not yet established).
+    s_led.emplace(orb::board::pin_led, /*initial=*/false);
 
     // Reset the hub before bringing up the host so a warm/watchdog reset
     // re-enumerates the controller cleanly instead of staying wedged.

@@ -13,7 +13,7 @@
 #include <cstring>
 #include <span>
 
-#include "bsp/board_api.h"
+#include "hal/platform.hpp"
 #include "orb_debug.h"
 #include "orb_enum.hpp"
 #include "xbox_one_protocol.h"
@@ -77,7 +77,7 @@ void init_packet(xbox_packet_t *pkt, std::uint32_t time, std::uint8_t length) {
 
 void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t *wla_output,
                                        std::uint8_t player_id) {
-    init_packet(wla_output, board_millis(), sizeof(xb_one_guitar_input_pkt_t));
+    init_packet(wla_output, orb::hal::Clock{}.now_us() / 1000u, sizeof(xb_one_guitar_input_pkt_t));
 
     wla_output->frame.command = frame_command_e::CMD_INPUT;
     wla_output->frame.device_id = 0;

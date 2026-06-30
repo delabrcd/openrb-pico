@@ -24,7 +24,8 @@
  * 64-byte packet, so a connect/disconnect concurrent with a core0 emit can tear. This
  * matches the previous behaviour and is out of scope for this refactor.
  */
-#include <pico.h>
+#include "core/section.hpp"
+#include "hal/platform.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,7 +35,6 @@
 
 #include "adapter.h"
 #include "adapter_ctx.h"
-#include "bsp/board_api.h"
 #include "drums.h"
 #include "hihat_config.h"
 #include "midi.h"
@@ -96,12 +96,12 @@ constexpr std::array<Output, 128> kNoteTable = make_note_table();
 
 // Pure note->lane lookup. Kept in RAM (__not_in_flash_func) as before; a 7-bit MIDI note
 // indexes the table, anything out of range maps to NO_OUT (the old switch's default).
-Output __not_in_flash_func(get_output_for_note)(std::uint8_t note) {
+Output ORB_FAST(get_output_for_note)(std::uint8_t note) {
     return note < kNoteTable.size() ? kNoteTable[note] : Output::NO_OUT;
 }
 
 // Set/clear one lane bit in the drum input packet. Kept in RAM (__not_in_flash_func).
-void __not_in_flash_func(update_drum_state_with_midi_input)(Output out, std::uint8_t state,
+void ORB_FAST(update_drum_state_with_midi_input)(Output out, std::uint8_t state,
                                                             xb_one_drum_input_pkt_t* drum_input) {
     switch (out) {
         case Output::OUT_KICK:
@@ -188,7 +188,7 @@ constexpr xbox_packet_t kInitialDrumPacket = {
 class DrumEngine {
    public:
     // --- core0: drum_task body --------------------------------------------------------
-    void __not_in_flash_func(tick)() {
+    void ORB_FAST(tick)() {
         if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
 
         static std::uint8_t pending_msg[48];
@@ -214,7 +214,7 @@ class DrumEngine {
 #endif
         }
 
-        current_time = board_millis();
+        current_time = orb::hal::Clock{}.now_us() / 1000u;
         for (Output out : kAllOutputs) {
             output_state_t& st = midi_output_states_[idx(out)];
             if (!st.triggered) continue;
@@ -238,7 +238,7 @@ class DrumEngine {
     // --- core1: drain the USB-host MIDI FIFO ------------------------------------------
     // Same core as on_midi_mount (which sets midi_dev_addr_). Drains regardless of adapter
     // state so the FIFO can't overflow; hands each complete message to core0 via the queue.
-    void __not_in_flash_func(read_midi_host)() {
+    void ORB_FAST(read_midi_host)() {
         std::uint8_t cable_num;
         std::uint8_t msg[48];
         while (tuh_midi_stream_read(midi_dev_addr_, &cable_num, msg, sizeof(msg)) != 0) {
@@ -303,7 +303,7 @@ class DrumEngine {
         LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", std::to_underlying(out), velocity);
 
         midi_output_states_[idx(out)].triggered = true;
-        midi_output_states_[idx(out)].triggered_at = board_millis();
+        midi_output_states_[idx(out)].triggered_at = orb::hal::Clock{}.now_us() / 1000u;
     }
 
 #if ORB_HIHAT_MODE >= 1
@@ -354,9 +354,9 @@ constinit DrumEngine g_engine;
 // the same __not_in_flash_func placement the originals had (drum_task +
 // drums_read_midi_host in RAM; the mount/umount cbs not).
 
-void __not_in_flash_func(drum_task)() { orb::service::g_engine.tick(); }
+void ORB_FAST(drum_task)() { orb::service::g_engine.tick(); }
 
-void __not_in_flash_func(drums_read_midi_host)(void) { orb::service::g_engine.read_midi_host(); }
+void ORB_FAST(drums_read_midi_host)(void) { orb::service::g_engine.read_midi_host(); }
 
 void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t num_cables_rx,
                        uint16_t num_cables_tx) {

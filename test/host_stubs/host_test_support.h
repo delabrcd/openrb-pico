@@ -12,4 +12,10 @@
 // calling code that timestamps with board_millis().
 extern std::uint32_t g_host_fake_millis;
 
+// Value returned by the host hal::Clock::now_us() stub (microseconds). Defaults to 0.
+// Set this before calling code that timestamps via orb::hal::Clock::now_us(). The
+// triggered_time field in an xbox_packet_t is stamped as now_us() / 1000, so set this to
+// the desired_ms * 1000u (must fit in uint32_t, i.e. desired_ms <= ~4,294,967 ms).
+extern std::uint32_t g_host_fake_us;
+
 #endif  // OPENRB_HOST_TEST_SUPPORT_H

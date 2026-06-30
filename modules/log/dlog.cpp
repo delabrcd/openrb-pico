@@ -2,11 +2,13 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <optional>
 
-#include "hardware/gpio.h"
+// hardware/structs/sio.h is kept here (not routed through the HAL) because sio_hw->cpuid
+// is the only way to identify which core is writing. There is no hal:: concept for CPU
+// core ID yet; adding one is left as a follow-on (needs hal::core::id() or similar).
 #include "hardware/structs/sio.h"
-#include "hardware/sync.h"
-#include "hardware/uart.h"
+#include "hal/platform.hpp"
 #include "core/spsc_ring.hpp"
 
 #define DLOG_UART uart1
@@ -15,6 +17,10 @@
 
 #define DLOG_NRING 2      // one SPSC ring per core
 #define DLOG_SIZE 16384u  // per ring; must be a power of two
+
+// Debug UART handle — emplaced by dlog_init(). std::optional so uart_init +
+// gpio_set_function run only after the system clock is stable (modern-cpp.md lifetime).
+static std::optional<orb::hal::Uart> s_dlog_uart;
 
 // One ring per core (SpscRing<char,N>, inc/spsc_ring.hpp). Each core produces only into
 // its own ring (advancing that ring's head); core0 is the sole consumer and drains both
@@ -37,9 +43,7 @@ static dlog_sink_t dlog_sink = nullptr;
 void dlog_set_sink(dlog_sink_t sink) { dlog_sink = sink; }
 
 void dlog_init(void) {
-    uart_init(DLOG_UART, 115200);
-    gpio_set_function(DLOG_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(DLOG_RX_PIN, GPIO_FUNC_UART);
+    s_dlog_uart.emplace(DLOG_UART, unsigned{DLOG_TX_PIN}, unsigned{DLOG_RX_PIN}, 115200u);
 }
 
 int dlog_printf(const char *fmt, ...) {
@@ -58,9 +62,8 @@ int dlog_printf(const char *fmt, ...) {
         // (a bounded copy of up to ~160 bytes -- a few microseconds of core0 interrupt
         // latency under chatty logging); it touches only core0's PRIMASK (no cross-core
         // spinlock), so it never stalls core1 or its PIO-USB timing.
-        uint32_t irq = save_and_disable_interrupts();
+        orb::hal::IrqGuard guard;
         s_ring[0].write(tmp, len);
-        restore_interrupts(irq);
     } else {
         // core1 runs exactly one task -> genuine single producer, no masking (and we must
         // never disable interrupts on the PIO-USB core).
@@ -80,7 +83,7 @@ void dlog_drain(void) {
         for (auto run = s_ring[ring].readable(); run.len; run = s_ring[ring].readable()) {
             for (uint32_t i = 0; i < run.len; i++) {
                 char c = run.ptr[i];
-                uart_putc_raw(DLOG_UART, c);
+                s_dlog_uart->write_byte(std::byte{static_cast<unsigned char>(c)});
                 if (dlog_sink) {
                     chunk[cn++] = (uint8_t)c;
                     if (cn == sizeof(chunk)) {

@@ -18,6 +18,7 @@
 #include "host_test_support.h"
 
 std::uint32_t g_host_fake_millis = 0;
+std::uint32_t g_host_fake_us = 0;
 
 extern "C" {
 
