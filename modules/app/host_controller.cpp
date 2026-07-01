@@ -268,7 +268,12 @@ void HostController::run() {
         while (host_tx_.recv(txp)) {
             uint8_t idx, addr;
             if (adapter_.controller(&idx, &addr)) {
-                xboxh_send_report(addr, idx, &txp, txp.length);
+                // txp.data(), NOT &txp: the wire payload is XboxPacket's private wire_ buffer,
+                // which no longer sits at the object's front (length/triggered_time/handled
+                // precede it). Passing &txp would relay the bookkeeping bytes as the report --
+                // exactly the bug that left auth-challenge passthrough sending garbage to the
+                // controller and stalling in STATE_AUTHENTICATING.
+                xboxh_send_report(addr, idx, txp.data(), txp.length);
             }
         }
 
