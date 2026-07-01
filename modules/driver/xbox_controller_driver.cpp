@@ -436,6 +436,11 @@ bool xboxh_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t result, uint32_
         p_controller->epin_buf.length = xferred_bytes;
         p_controller->epin_buf.triggered_time = orb::hal::Clock::duration{};
         p_controller->epin_buf.handled = 0;
+        // TODO(rx-decouple): as with the device OUT path, prefer enqueuing epin_buf into a
+        // bounded RX queue over this synchronous callback, so the controller-input consumer
+        // isn't tied to tuh_task/core1. NOTE: this is the input HOT path -- a queue+task hop
+        // adds latency, so measure before moving it (unlike the low-rate device control plane,
+        // this one may justifiably stay inline on core1). See the "Fully decouple USB RX" task.
         if (xboxh_packet_received_cb)
             xboxh_packet_received_cb(idx, &p_controller->epin_buf, xferred_bytes);
 

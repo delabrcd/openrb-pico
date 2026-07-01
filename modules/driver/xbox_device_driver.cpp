@@ -264,6 +264,13 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
         LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epout_buf.data(), xferred_bytes);
 
         p_xinput->epout_buf.length = xferred_bytes;
+        // TODO(rx-decouple): stop invoking the consumer synchronously here -- this pins the
+        // device state machine to tud_task/core0. Instead enqueue epout_buf into a bounded RX
+        // queue (non-blocking, drop-if-full, like the #47 instrument-event queue) and let a
+        // separate consumer task drain it, so receivers aren't tied to this callback's
+        // core/task. The handler already only writes to the tx fifo / host_tx queue + state
+        // (no tud_* calls), so it is safe on any core0 task. See the "Fully decouple USB RX"
+        // task; fold into P4 (DeviceSession).
         if (xboxd_packet_received_cb)
             xboxd_packet_received_cb(rhport, &p_xinput->epout_buf, xferred_bytes);
         TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.data(),
