@@ -1,6 +1,7 @@
 #include "midi.h"
 
 #include <array>
+#include <chrono>
 #include <optional>
 #include <utility>  // std::to_underlying
 
@@ -10,11 +11,10 @@
 #include "orb_bsp.h"
 #include "orb_debug.h"
 
-// Timeout durations for the drum-disconnect timer (in milliseconds).
-// NOTE: FIFTEEN_MINUTES was a misnomer in the original code -- the value 90000 ms is
-// 90 seconds, not 15 minutes. The value is preserved exactly to keep behavior identical.
-inline constexpr uint32_t kOneSecondMs = 1000u;
-inline constexpr uint32_t kDisconnectTimeoutMs = 90000u;  // 90 s (not 15 min -- see note above)
+// Drum-disconnect timer intervals. NOTE: the original FIFTEEN_MINUTES name was a misnomer --
+// 90000 ms is 90 s, preserved exactly.
+inline constexpr std::chrono::seconds kOneSecond{1};
+inline constexpr std::chrono::seconds kDisconnectTimeout{90};  // 90 s (not 15 min)
 
 namespace orb::service {
 
@@ -30,7 +30,7 @@ void SerialMidi::init() {
 
 void SerialMidi::setup_disconnect_timer() {
     disconnect_timer_.create<SerialMidi, &SerialMidi::on_disconnect_timeout>(
-        "midi_disc", pdMS_TO_TICKS(kDisconnectTimeoutMs), false /*one-shot*/, *this);
+        "midi_disc", kDisconnectTimeout, false /*one-shot*/, *this);
 }
 
 void ORB_FAST(SerialMidi::reset_disconnect_timer)() {
@@ -38,8 +38,7 @@ void ORB_FAST(SerialMidi::reset_disconnect_timer)() {
     // xTimerChangePeriod, which also starts/restarts the timer, giving the same
     // "cancel + re-arm" semantics as the old hardware_alarm code. Block time 0 --
     // don't block in this hot path.
-    disconnect_timer_.change_period(
-        pdMS_TO_TICKS(drums_sending_active_sense_ ? kOneSecondMs : kDisconnectTimeoutMs), 0);
+    disconnect_timer_.change_period(drums_sending_active_sense_ ? kOneSecond : kDisconnectTimeout);
 }
 
 std::optional<std::array<std::uint8_t, 3>> ORB_FAST(SerialMidi::read)() {

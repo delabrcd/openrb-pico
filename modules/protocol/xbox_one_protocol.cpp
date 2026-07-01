@@ -68,16 +68,16 @@ std::uint8_t xboxp_get_size(const xbox_packet_t *packet) {
     return packet->length;
 }
 
-void init_packet(xbox_packet_t *pkt, std::uint32_t time, std::uint8_t length) {
+void init_packet(xbox_packet_t *pkt, orb::hal::Clock::time_point time, std::uint8_t length) {
     pkt->frame.sequence = get_sequence();
-    pkt->triggered_time = time;
+    pkt->triggered_time = time.time_since_epoch();
     pkt->handled = 0;
     pkt->length = length;
 }
 
 void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t *wla_output,
                                        std::uint8_t player_id) {
-    init_packet(wla_output, orb::hal::Clock{}.now_us() / 1000u, sizeof(xb_one_guitar_input_pkt_t));
+    init_packet(wla_output, orb::hal::Clock{}.now(), sizeof(xb_one_guitar_input_pkt_t));
 
     wla_output->frame.command = frame_command_e::CMD_INPUT;
     wla_output->frame.device_id = 0;
@@ -114,7 +114,7 @@ void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
     std::ranges::fill(std::span{wla_output->buffer}, std::uint8_t{0});
 
     wla_output->handled = 0;
-    wla_output->triggered_time = 0;
+    wla_output->triggered_time = orb::hal::Clock::duration{};
 
     wla_output->length = sizeof(xb_one_drum_input_pkt_t);
     wla_output->frame.command = controller_input->frame.command;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 
 enum class adapter_state_t : std::uint8_t {
@@ -15,18 +16,19 @@ enum class adapter_state_t : std::uint8_t {
 // become typed constexpr -- no preprocessor needed. All consumers are C++.
 namespace orb::service {
 
-// Re-announce cadence and the input/timing thresholds, in milliseconds.
-inline constexpr std::uint32_t announce_interval_ms = 2000;
+// Re-announce cadence and the input/timing thresholds.
+inline constexpr std::chrono::milliseconds announce_interval{2000};
 inline constexpr std::uint8_t velocity_thresh = 10;
-inline constexpr std::uint32_t trigger_hold_ms = 40;
-inline constexpr std::uint32_t on_delay_ms = 20;
+inline constexpr std::chrono::milliseconds trigger_hold{40};
+inline constexpr std::chrono::milliseconds on_delay{20};
 
 // USB endpoint-direction bits (bit 7 of bEndpointAddress).
 inline constexpr std::uint8_t endpoint_dir_out = 0x00;
 inline constexpr std::uint8_t endpoint_dir_in = 0x80;
 
-// Adapter interrupt-endpoint polling interval (ms); also the drum-emit throttle.
-inline constexpr std::uint8_t adapter_out_interval = 4;
-inline constexpr std::uint8_t adapter_in_interval = 4;
+// Adapter interrupt-endpoint polling interval; also the drum-emit throttle. Encoded to a
+// uint8 wire byte (PollingIntervalMS) at the descriptor site (usb_descriptors.cpp).
+inline constexpr std::chrono::milliseconds adapter_out_interval{4};
+inline constexpr std::chrono::milliseconds adapter_in_interval{4};
 
 }  // namespace orb::service

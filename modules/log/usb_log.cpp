@@ -1,5 +1,6 @@
 #include "usb_log.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -69,7 +70,7 @@ static bool s_fs_ready;      // FatFs mounted + LOG.TXT open
 static bool s_enabled = true;
 static FATFS s_fatfs;
 static FIL s_file;
-static uint32_t s_last_sync_us;
+static orb::hal::Clock::time_point s_last_sync;
 static orb::hal::Clock s_clock;  // trivially constructible -> no global ctor
 static TU_ATTR_ALIGNED(4) uint8_t s_chunk[512];  // drain buffer (USB transfer src)
 
@@ -110,7 +111,7 @@ void usb_log_task(void) {
             return;
         }
         s_fs_ready = true;
-        s_last_sync_us = s_clock.now_us();
+        s_last_sync = s_clock.now();
     }
 
     // Drain one contiguous run (up to s_chunk) per call; the loop comes back next tick.
@@ -132,10 +133,10 @@ void usb_log_task(void) {
 
     // Periodic flush so the on-disk file size/FAT are updated and a pulled stick is
     // readable up to ~1 s ago.
-    uint32_t now = s_clock.now_us();
-    if ((uint32_t)(now - s_last_sync_us) > 1000000u) {
+    orb::hal::Clock::time_point now = s_clock.now();
+    if (now - s_last_sync > std::chrono::seconds(1)) {
         f_sync(&s_file);
-        s_last_sync_us = now;
+        s_last_sync = now;
     }
 }
 

@@ -33,8 +33,12 @@
  */
 #pragma once
 
+#include <chrono>
+
 #include "FreeRTOS.h"
 #include "semphr.h"
+
+#include "chrono.hpp"
 
 namespace orb::osal {
 
@@ -47,10 +51,13 @@ class Mutex {
         return handle_;
     }
 
-    // Take (lock). `ticks_to_wait` is the max block time (portMAX_DELAY to wait
-    // forever, 0 to poll). Returns true if the mutex was obtained.
-    bool take(TickType_t ticks_to_wait = portMAX_DELAY) {
-        return xSemaphoreTake(handle_, ticks_to_wait) == pdTRUE;
+    // Take (lock), blocking until acquired. Returns true on success.
+    bool take() { return xSemaphoreTake(handle_, portMAX_DELAY) == pdTRUE; }
+
+    // Timed take: wait at most `timeout`. Returns true if the mutex was obtained.
+    template <typename Rep, typename Period>
+    bool try_take_for(std::chrono::duration<Rep, Period> timeout) {
+        return xSemaphoreTake(handle_, to_ticks(timeout)) == pdTRUE;
     }
 
     // Give (unlock). Returns true on success (false if not held by this task, etc.).
@@ -68,8 +75,12 @@ class Mutex {
 // succeeded when a bounded timeout was requested.
 class ScopedLock {
    public:
-    explicit ScopedLock(Mutex &m, TickType_t ticks_to_wait = portMAX_DELAY)
-        : mutex_(m), held_(m.take(ticks_to_wait)) {}
+    // Blocking guard: take on construction (waits forever), give on destruction.
+    explicit ScopedLock(Mutex &m) : mutex_(m), held_(m.take()) {}
+    // Timed guard: take with a bounded timeout; check held() before entering the section.
+    template <typename Rep, typename Period>
+    ScopedLock(Mutex &m, std::chrono::duration<Rep, Period> timeout)
+        : mutex_(m), held_(m.try_take_for(timeout)) {}
     ~ScopedLock() {
         if (held_) mutex_.give();
     }

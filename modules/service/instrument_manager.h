@@ -48,7 +48,7 @@ struct InstrumentEvent {
 // -> service_once) drains the queue and is the ONLY mutator of connected_[] and the only
 // place the add/drop packet is built + written to the device fifo. This is the fix for a
 // whole-processor lockup: the old path ran on core1 and, after the flag flip, called
-// xbox_fifo_write() which takes a FreeRTOS mutex with an infinite (portMAX_DELAY) timeout --
+// xbox_fifo_write() which takes a FreeRTOS mutex with an infinite (indefinite) timeout --
 // blocking the timing-critical PIO-USB host core inside a USB umount callback. Producers
 // now never lock and never block, so core1 is never held off.
 //

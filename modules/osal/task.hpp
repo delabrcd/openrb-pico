@@ -18,8 +18,12 @@
  */
 #pragma once
 
+#include <chrono>
+
 #include "FreeRTOS.h"
 #include "task.h"
+
+#include "chrono.hpp"
 
 namespace orb::osal {
 
@@ -64,6 +68,13 @@ class Task {
     StaticTask_t tcb_;
     TaskHandle_t handle_ = nullptr;
 };
+
+// Sleep the calling task for a std::chrono duration (wraps vTaskDelay -- confines the tick
+// conversion to osal). Never call on core1's PIO-USB task.
+template <typename Rep, typename Period>
+inline void sleep_for(std::chrono::duration<Rep, Period> d) {
+    vTaskDelay(to_ticks(d));
+}
 
 }  // namespace orb::osal
 

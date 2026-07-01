@@ -30,6 +30,13 @@ MUST follow this; it is the direction, not yet uniformly realized.
   entries are the ONLY places a raw pointer may appear, and they are confined to one adapter
   TU per seam that converts to typed events / `std::span` and dispatches inward. Feature code
   never sees the raw pointer.
+- **Time is `std::chrono` at every boundary.** Durations and timeouts are typed
+  `std::chrono::duration`; timestamps are `Clock::time_point`. `TickType_t`, `pdMS_TO_TICKS`,
+  `portMAX_DELAY` and bare `uint32_t`-milliseconds constants never appear outside `osal/`
+  (the RTOS-tick conversion in `osal/chrono.hpp::to_ticks`) — everything above osal speaks
+  `std::chrono`. The one deliberate exception is wire/descriptor fields that carry a numeric
+  time value on the USB ABI (e.g. `bInterval`/`PollingIntervalMS`, packet `triggered_time`),
+  which stay their raw integer type because they ARE the wire encoding, not our clock API.
 
 ## Language & style
 

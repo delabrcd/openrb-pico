@@ -7,6 +7,7 @@
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,7 @@
 
 #include "core/section.hpp"
 #include "hal/platform.hpp"
+#include "osal/task.hpp"
 
 #include "adapter.h"
 #include "app_queues.h"
@@ -313,7 +315,7 @@ static void announce_task() {
     if (orb::service::adapter().state() != adapter_state_t::STATE_INIT) return;
 
     static unsigned long last_announce_time = 0;
-    if ((board_millis() - last_announce_time) > orb::service::announce_interval_ms) {
+    if (std::chrono::milliseconds(board_millis() - last_announce_time) > orb::service::announce_interval) {
         if (orb::service::adapter().controller_idx() < UINT8_MAX) {
             LOG_INFO(CAT_DEV, "ANNOUNCING");
             identifiers_get_announce(&out_packet);
@@ -498,11 +500,11 @@ static void reset_usb_hub(void) {
     if (!s_hub_rst) s_hub_rst.emplace(orb::board::pin_usb_hub_rst);
     orb::hal::Clock clk;
     s_hub_rst->assert_low();  // drive RESET# low (>4us; we hold 10ms)
-    // hal::Clock::delay_ms wraps busy_wait_ms — pure timer wait, safe pre-scheduler and on
+    // hal::Clock::delay wraps busy_wait_us/ms — pure timer wait, safe pre-scheduler and on
     // core1. Never sleep_ms: that blocks via FreeRTOS before the scheduler is up (deadlock).
-    clk.delay_ms(10);
+    clk.delay(std::chrono::milliseconds(10));
     s_hub_rst->release();     // release to Hi-Z; external pull-up -> high, no CDP mode
-    clk.delay_ms(50);         // wait out the hub POR (~5-14ms) before host init
+    clk.delay(std::chrono::milliseconds(50));  // wait out the hub POR (~5-14ms) before host init
 #endif
 }
 
@@ -673,7 +675,7 @@ void drum_input_task(void *param) {
     (void)param;
     while (true) {
         drum_task();
-        vTaskDelay(pdMS_TO_TICKS(2));
+        orb::osal::sleep_for(std::chrono::milliseconds(2));
     }
 }
 
@@ -697,7 +699,7 @@ void housekeeping_task(void *param) {
         announce_task();
         recovery_reboot_task();
         dlog_drain();
-        vTaskDelay(pdMS_TO_TICKS(5));
+        orb::osal::sleep_for(std::chrono::milliseconds(5));
     }
 }
 

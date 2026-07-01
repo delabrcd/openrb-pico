@@ -7,25 +7,26 @@
  */
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <cstdint>
 
 namespace orb::hal {
 
-// A free-running monotonic microsecond counter, readable LOCK-FREE from either core. 32
-// bits at 1 MHz wraps ~71.6 min; callers use unsigned subtraction to measure elapsed time
-// across a wrap. (Distinct from any millisecond/64-bit time that takes a lock.)
+// A monotonic steady clock exposing a chrono-style now() whose time_point is backed by a
+// 32-bit microsecond rep, so `now() - earlier` is unsigned-modular and measures elapsed time
+// correctly across the ~71.6 min wrap. Lock-free, readable from either core.
 template <typename T>
 concept MonotonicClock = requires(const T clk) {
-    { clk.now_us() } -> std::convertible_to<uint32_t>;
+    typename T::time_point;
+    { clk.now() } -> std::same_as<typename T::time_point>;
 };
 
-// A pure busy-wait delay, safe to call on the timing-critical core (no sleep/yield/lock).
-// For pre-scheduler and core1 use where vTaskDelay/sleep_ms would deadlock or stall SOF.
+// A pure busy-wait delay, safe on the timing-critical core (no sleep/yield/lock). Accepts any
+// std::chrono duration. For pre-scheduler and core1 use where vTaskDelay/sleep would deadlock.
 template <typename T>
-concept BusyDelay = requires(const T d, uint32_t n) {
-    { d.delay_us(n) };
-    { d.delay_ms(n) };
+concept BusyDelay = requires(const T d, std::chrono::microseconds us) {
+    { d.delay(us) };
 };
 
 }  // namespace orb::hal

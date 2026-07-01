@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <utility>  // std::to_underlying
@@ -201,7 +202,6 @@ void ORB_FAST(DrumEngine::tick)() {
     if (adapter_.state() != adapter_state_t::STATE_RUNNING) return;
 
     static midi_type_e type;
-    static std::uint32_t current_time;
 
     midi_note_t n;
     while (midi_notes_.recv(n)) {
@@ -222,13 +222,12 @@ void ORB_FAST(DrumEngine::tick)() {
 #endif
     }
 
-    current_time = orb::hal::Clock{}.now_us() / 1000u;
+    const orb::hal::Clock::time_point now = orb::hal::Clock{}.now();
     for (Output out : kAllOutputs) {
         output_state_t& st = midi_output_states_[idx(out)];
         if (!st.triggered) continue;
 
-        std::uint32_t time_since_trigger = current_time - st.triggered_at;
-        if (time_since_trigger > trigger_hold_ms) {
+        if (now - st.triggered_at > trigger_hold) {
             LOG_DBG(CAT_DRUM, "NOTE OFF: %d", std::to_underlying(out));
             update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input);
             st.triggered = false;
@@ -236,8 +235,8 @@ void ORB_FAST(DrumEngine::tick)() {
         }
     }
 
-    if (changed_ && current_time - input_pkt_.triggered_time > adapter_out_interval) {
-        init_packet(&input_pkt_, current_time, sizeof(xb_one_drum_input_pkt_t));
+    if (changed_ && now.time_since_epoch() - input_pkt_.triggered_time > adapter_out_interval) {
+        init_packet(&input_pkt_, now, sizeof(xb_one_drum_input_pkt_t));
         txfifo_.write(input_pkt_);
         changed_ = false;
     }
@@ -262,7 +261,7 @@ void DrumEngine::note_on(std::uint8_t note, std::uint8_t velocity) {
     LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", std::to_underlying(out), velocity);
 
     midi_output_states_[idx(out)].triggered = true;
-    midi_output_states_[idx(out)].triggered_at = orb::hal::Clock{}.now_us() / 1000u;
+    midi_output_states_[idx(out)].triggered_at = orb::hal::Clock{}.now();
 }
 
 #if ORB_HIHAT_MODE >= 1

@@ -1,5 +1,6 @@
 #include "adapter.h"
 #include "bsp/board_api.h"
+#include "hal/platform.hpp"
 #include "hardware/gpio.h"
 #include "orb_debug.h"
 #include "tusb_option.h"
@@ -8,6 +9,7 @@
 #if (CFG_TUD_ENABLED && CFG_TUD_XINPUT)
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <utility>  // std::to_underlying
 
@@ -85,7 +87,8 @@ bool xboxd_send_task() {
         TU_VERIFY(xbox_fifo_read(pkt));
     }
 
-    TU_VERIFY((board_millis() - pkt->triggered_time) > orb::service::on_delay_ms);
+    TU_VERIFY((orb::hal::Clock{}.now().time_since_epoch() - pkt->triggered_time) >
+              orb::service::on_delay);
 
     TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
 

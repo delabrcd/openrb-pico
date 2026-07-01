@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
+#include "hal/platform.hpp"
 #include "orb_debug.h"
 
 /* Xbox One data taken from descriptors: max wire packet size (BUCKET A). C++-only
@@ -206,9 +208,19 @@ typedef struct {
         uint8_t buffer[XBOX_ONE_EP_MAXPKTSIZE];
     };
     uint8_t length;
-    uint32_t triggered_time;
+    // Host-side timestamp: time-since-epoch of the monotonic Clock. A Clock::duration (not a
+    // time_point) so it stays trivially-copyable -- xbox_packet_t moves through the tx fifo /
+    // queues by memcpy. Never sent on the wire (it lives past `length`).
+    orb::hal::Clock::duration triggered_time;
     uint8_t handled;
-} __attribute__((packed)) xbox_packet_t;
+    // NB: the OUTER struct is intentionally NOT __attribute__((packed)). The wire payload is
+    // the leading union, whose members are each individually packed, and `length` is a uint8
+    // that lands naturally at the union's 64-byte boundary (asserted below) -- so outer packing
+    // was always redundant for the wire layout. Dropping it lets the trailing bookkeeping tail
+    // hold a std::chrono type (which GCC deems non-POD for packing) without the compiler warning
+    // "ignoring packed attribute because of unpacked non-POD field". The tail is never
+    // serialized, so its internal padding is irrelevant.
+} xbox_packet_t;
 
 // The leading anonymous union is the USB *wire* payload: every typed member aliases the
 // same bytes, the largest of which is `buffer[XBOX_ONE_EP_MAXPKTSIZE]`. The trailing
@@ -264,7 +276,7 @@ static inline led_mode_command_t make_led_mode_command(uint8_t sequence, led_mod
 uint8_t xboxp_get_size(const xbox_packet_t *packet);
 uint8_t get_sequence();
 
-void init_packet(xbox_packet_t *pkt, uint32_t time, uint8_t length);
+void init_packet(xbox_packet_t *pkt, orb::hal::Clock::time_point time, std::uint8_t length);
 
 void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
                                      xbox_packet_t *wla_output, uint8_t player_id);

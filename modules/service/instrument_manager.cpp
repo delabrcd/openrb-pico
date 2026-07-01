@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -147,7 +148,7 @@ void InstrumentManager::build_packet(xbox_packet_t &pkt, instruments_e instrumen
         connect ? std::span<const std::uint8_t>{instrument_notify[idx(instrument)]}
                 : std::span<const std::uint8_t>{instrument_drop_out[idx(instrument)]};
     std::ranges::copy(src, std::span<std::uint8_t>{pkt.buffer}.begin());
-    init_packet(&pkt, 0, static_cast<std::uint8_t>(src.size()));
+    init_packet(&pkt, orb::hal::Clock::time_point{}, static_cast<std::uint8_t>(src.size()));
 }
 
 }  // namespace orb::service

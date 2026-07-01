@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -99,7 +100,7 @@ int identifiers_get_announce(xbox_packet_t *packet) {
         b = static_cast<std::uint8_t>(std::rand() % UINT8_MAX);
     }
 
-    init_packet(packet, 0, static_cast<std::uint8_t>(announce.size()));
+    init_packet(packet, orb::hal::Clock::time_point{}, static_cast<std::uint8_t>(announce.size()));
     return 0;
 }
 
@@ -109,6 +110,6 @@ int identifiers_get(std::uint8_t sequence, xbox_packet_t *packet) {
 
     const std::span<const std::uint8_t> src = kIdentifyList[sequence];
     std::ranges::copy(src, std::span<std::uint8_t>{packet->buffer}.begin());
-    init_packet(packet, 0, static_cast<std::uint8_t>(src.size()));
+    init_packet(packet, orb::hal::Clock::time_point{}, static_cast<std::uint8_t>(src.size()));
     return 0;
 }

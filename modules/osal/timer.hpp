@@ -17,10 +17,11 @@
  * xTimerCreateStatic once the kernel is up enough. Give each instance static storage
  * duration (it must outlive the timer).
  *
+ *   using namespace std::chrono_literals;
  *   static orb::osal::Timer s_disconnect_timer;
  *   s_disconnect_timer.create<SerialMidi, &SerialMidi::on_disconnect_timeout>(
- *       "midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES), false, midi);  // false == one-shot
- *   s_disconnect_timer.change_period(pdMS_TO_TICKS(ONE_SECOND), 0);  // re-arm, no block
+ *       "midi_disc", 90s, false, midi);          // false == one-shot
+ *   s_disconnect_timer.change_period(1s);         // re-arm, no block
  *
  * pvTimerGetTimerID(handle) / id() retrieve the stashed void* id if the callback needs
  * to find per-timer state through the handle rather than a file-static -- note the
@@ -29,21 +30,25 @@
  */
 #pragma once
 
+#include <chrono>
+
 #include "FreeRTOS.h"
 #include "timers.h"
+
+#include "chrono.hpp"
 
 namespace orb::osal {
 
 class Timer {
    public:
-    // Create the timer. Call once, before/while the scheduler runs. Never null for a
-    // static create. `auto_reload` true == periodic, false == one-shot (matches the
-    // uxAutoReload argument of xTimerCreateStatic). `id` is stashed as the timer's
-    // pvTimerID and retrievable via id() / pvTimerGetTimerID() from the callback.
-    TimerHandle_t create(const char *name, TickType_t period_ticks, bool auto_reload,
-                         TimerCallbackFunction_t callback, void *id = nullptr) {
-        handle_ = xTimerCreateStatic(name, period_ticks,
-                                     auto_reload ? pdTRUE : pdFALSE, id, callback, &ctrl_);
+    // Create the timer. Call once, before/while the scheduler runs. Never null for a static
+    // create. `auto_reload` true == periodic, false == one-shot. `id` is stashed as the timer's
+    // pvTimerID (retrievable via id()). `period` is any std::chrono duration.
+    template <typename Rep, typename Period>
+    TimerHandle_t create(const char *name, std::chrono::duration<Rep, Period> period,
+                         bool auto_reload, TimerCallbackFunction_t callback, void *id = nullptr) {
+        handle_ = xTimerCreateStatic(name, to_ticks(period), auto_reload ? pdTRUE : pdFALSE, id,
+                                     callback, &ctrl_);
         return handle_;
     }
 
@@ -55,19 +60,21 @@ class Timer {
     // (obj.*Method)() lowers to a direct call, identical codegen to a free-function callback.
     // NOTE: this overload consumes the pvTimerID slot to stash &obj, so id() is unavailable on
     // a timer created this way (mutually exclusive with the void* id overload above).
-    template <typename T, void (T::*Method)()>
-    TimerHandle_t create(const char *name, TickType_t period_ticks, bool auto_reload, T &obj) {
-        handle_ = xTimerCreateStatic(name, period_ticks, auto_reload ? pdTRUE : pdFALSE,
-                                     &obj, &trampoline<T, Method>, &ctrl_);
+    template <typename T, void (T::*Method)(), typename Rep, typename Period>
+    TimerHandle_t create(const char *name, std::chrono::duration<Rep, Period> period,
+                         bool auto_reload, T &obj) {
+        handle_ = xTimerCreateStatic(name, to_ticks(period), auto_reload ? pdTRUE : pdFALSE, &obj,
+                                     &trampoline<T, Method>, &ctrl_);
         return handle_;
     }
 
-    // Set a new period and (re)start the timer. xTimerChangePeriod also starts/restarts
-    // a dormant timer, giving "cancel + re-arm" semantics. Returns true if the command
-    // was queued to the timer-service task. `ticks_to_wait` is the block time on the
-    // timer command queue (0 == don't block, for hot paths).
-    bool change_period(TickType_t new_period_ticks, TickType_t ticks_to_wait) {
-        return xTimerChangePeriod(handle_, new_period_ticks, ticks_to_wait) == pdPASS;
+    // Set a new period and (re)start the timer (xTimerChangePeriod also starts a dormant
+    // timer -> "cancel + re-arm"). `block` is the max time to wait on the timer command queue
+    // (default = don't block, for hot paths).
+    template <typename Rep, typename Period>
+    bool change_period(std::chrono::duration<Rep, Period> new_period,
+                       std::chrono::milliseconds block = std::chrono::milliseconds::zero()) {
+        return xTimerChangePeriod(handle_, to_ticks(new_period), to_ticks(block)) == pdPASS;
     }
 
     TimerHandle_t handle() const { return handle_; }

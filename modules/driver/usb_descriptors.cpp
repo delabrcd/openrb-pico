@@ -26,6 +26,7 @@
  * header; nothing in our code calls these (only the USB stack does).
  */
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <span>
@@ -178,7 +179,8 @@ const struct {
                                                                 TUSB_ISO_EP_ATT_NO_SYNC,
                                                                 TUSB_ISO_EP_ATT_DATA),
                              .EndpointSize      = 64,
-                             .PollingIntervalMS = orb::service::adapter_out_interval},
+                             .PollingIntervalMS =
+                                 static_cast<std::uint8_t>(orb::service::adapter_out_interval.count())},
     .I00ReportINEndpoint  = {.Header = {.Size = sizeof(ConfigurationDescriptor.I00ReportINEndpoint),
                                         .Type = TUSB_DESC_ENDPOINT},
                              .EndpointAddress   = ADAPTER_IN_NUM,
@@ -186,7 +188,8 @@ const struct {
                                                                 TUSB_ISO_EP_ATT_NO_SYNC,
                                                                 TUSB_ISO_EP_ATT_DATA),
                              .EndpointSize      = 64,
-                             .PollingIntervalMS = orb::service::adapter_in_interval},
+                             .PollingIntervalMS =
+                                 static_cast<std::uint8_t>(orb::service::adapter_in_interval.count())},
 
     .Interface10          = {.Header            = {.Size = sizeof(ConfigurationDescriptor.Interface10),
                                                    .Type = TUSB_DESC_INTERFACE},

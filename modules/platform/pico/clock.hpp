@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 
 #include "hardware/timer.h"
@@ -17,12 +18,22 @@ namespace orb::platform::pico {
 
 class Clock {
    public:
+    // 32-bit microsecond rep so `now() - earlier` is unsigned-modular across the ~71.6 min
+    // wrap (see hal/clock.hpp). NOT microseconds(int64) -- that would break wraparound.
+    using rep = std::uint32_t;
+    using period = std::micro;
+    using duration = std::chrono::duration<rep, period>;
+    using time_point = std::chrono::time_point<Clock, duration>;
+    static constexpr bool is_steady = true;
+
     // Lock-free, both-core-safe. 1 MHz raw timer low word.
-    uint32_t now_us() const { return timer_hw->timerawl; }
+    time_point now() const { return time_point{duration{timer_hw->timerawl}}; }
 
     // Pure busy-wait -- no scheduler/SDK sleep, safe on core1 and before the scheduler.
-    void delay_us(uint32_t us) const { busy_wait_us(us); }
-    void delay_ms(uint32_t ms) const { busy_wait_ms(ms); }
+    template <typename Rep, typename Period>
+    void delay(std::chrono::duration<Rep, Period> d) const {
+        busy_wait_us(std::chrono::duration_cast<std::chrono::microseconds>(d).count());
+    }
 };
 
 }  // namespace orb::platform::pico

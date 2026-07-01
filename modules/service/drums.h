@@ -8,11 +8,13 @@
 // see kNumOut below).
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
 #include "adapter_ctx.h"         // orb::service::AdapterState
 #include "app_queues.h"          // midi_note_t
+#include "hal/platform.hpp"      // orb::hal::Clock
 #include "hihat_config.h"        // ORB_HIHAT_MODE
 #include "instrument_manager.h"  // orb::service::InstrumentManager
 #include "midi.h"                // orb::service::SerialMidi
@@ -65,7 +67,7 @@ class DrumEngine {
 
    private:
     struct output_state_t {
-        std::uint32_t triggered_at;
+        orb::hal::Clock::time_point triggered_at;
         bool triggered;
     };
 
