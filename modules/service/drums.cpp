@@ -17,12 +17,12 @@
  * (inc/hihat_config.h, see docs/features/hihat-mode.md). The DEFAULT build (mode 0)
  * compiles all of it out and is byte-identical to the pure note-relay firmware.
  *
- * KNOWN cross-core hazard (pre-existing, intentionally NOT fixed here): input_pkt_ is
- * written from BOTH cores -- core0 (drum_task: lane bits + init_packet) and core1
- * (tuh_midi mount/umount -> connect/disconnect_instrument, which writes the packet via
- * build_packet/init_packet). There is no lock or single-word-publish discipline on that
- * 64-byte packet, so a connect/disconnect concurrent with a core0 emit can tear. This
- * matches the previous behaviour and is out of scope for this refactor.
+ * Threading: input_pkt_ is now written on core0 ONLY (drum_task: lane bits + init_packet +
+ * the fifo write). The tuh_midi mount/umount callbacks run on core1 but only post a hot-plug
+ * event via connect/disconnect_instrument -- they no longer build into input_pkt_ (the
+ * instrument owner task owns its own scratch), so the previous cross-core tearing hazard on
+ * this 64-byte packet is gone. read_midi_host (core1) likewise only feeds the midi_note
+ * queue and never touches input_pkt_.
  */
 #include "core/section.hpp"
 #include "hal/platform.hpp"
@@ -246,7 +246,7 @@ class DrumEngine {
         if (midi_dev_addr_ == 0) {
             // then no MIDI device is currently connected
             midi_dev_addr_ = dev_addr;
-            connect_instrument(DRUMS, &input_pkt_);
+            connect_instrument(DRUMS);  // posts an event; owner task (core0) does the notify
         } else {
             LOG_WARN(CAT_DRUM,
                      "A different USB MIDI Device is already connected. Only one device at a time "
@@ -259,7 +259,7 @@ class DrumEngine {
             midi_dev_addr_ = 0;
             LOG_INFO(CAT_DRUM, "MIDI device address = %d, instance = %d is unmounted", dev_addr,
                      instance);
-            disconnect_instrument(DRUMS, &input_pkt_);
+            disconnect_instrument(DRUMS);  // non-blocking on core1's umount path
         } else {
             LOG_INFO(CAT_DRUM, "Unused MIDI device address = %d, instance = %d is unmounted",
                      dev_addr, instance);

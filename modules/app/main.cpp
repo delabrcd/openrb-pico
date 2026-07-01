@@ -614,6 +614,11 @@ static void init() {
     xbox_fifo_init();
     LOG_INFO(CAT_SYS, "finished initializing xbox fifo...");
 
+    // Instrument hot-plug event queue: producers (guitar/drums/midi, either core) post
+    // {instrument, connect} events; the core0 instrument_task is the sole applier. Must
+    // exist before any connect/disconnect_instrument call (all after the scheduler starts).
+    instrument_manager_init();
+
     // LED: push-pull output, start low (auth not yet established).
     s_led.emplace(orb::board::pin_led, /*initial=*/false);
 
@@ -657,6 +662,17 @@ void drum_input_task(void *param) {
     while (true) {
         drum_task();
         vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+
+// Instrument hot-plug owner (core0): the ONLY mutator of the connection state and the only
+// place the add/drop packet is built + queued to the device. Blocks on the instrument event
+// queue, so it costs nothing until a guitar/drum mounts or umounts. Keeping this off core1
+// is the whole point -- the producers (USB umount callbacks) just post and return.
+void instrument_task(void *param) {
+    (void)param;
+    while (true) {
+        instrument_manager_service();  // parks until an event arrives, then applies it
     }
 }
 

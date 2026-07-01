@@ -5,25 +5,25 @@
  * as adapter_ctx.cpp: a C++ object owns the state/logic, thin free functions forward into
  * the single instance.
  *
- * Concurrency: connect/disconnect run on BOTH cores -- DRUMS connects/disconnects from core1
- * (the USB-MIDI mount/umount callbacks in drums.cpp, which run inside the core1 host task)
- * AND from core0 (serial-MIDI in midi.cpp + the timer-daemon disconnect, both core0); the
- * guitars connect/disconnect from core1 only. notify_* run on core0 (the device stack). So
- * connected_[DRUMS] is a genuinely cross-core flag. (The original C globals were `volatile
- * uint8_t` with the same cross-core callers -- the non-atomic check-then-set was a latent
- * race there too; this is the corrected version, not a regression.)
+ * Concurrency (single-owner design): connect/disconnect are called from BOTH cores -- DRUMS
+ * from core1 (the USB-MIDI mount/umount callbacks in drums.cpp, inside the core1 host task)
+ * AND from core0 (serial-MIDI in midi.cpp + the timer-daemon disconnect); the guitars from
+ * core1 only. Rather than mutate shared state under a cross-core lock on whichever core
+ * calls in, connect_instrument()/disconnect_instrument() just POST a tiny {instrument,
+ * connect} event onto an OSAL queue (non-blocking) and return. A SINGLE core0 owner task
+ * (instrument_task -> instrument_manager_service) drains the queue and is the ONLY mutator
+ * of connected_[] and the only place the add/drop packet is built + written to the device
+ * fifo. This is the fix for a whole-processor lockup: the old path ran on core1 and, after
+ * the flag flip, called xbox_fifo_write() which takes a FreeRTOS mutex with an infinite
+ * (portMAX_DELAY) timeout -- blocking the timing-critical PIO-USB host core inside a USB
+ * umount callback. Producers now never lock and never block, so core1 is never held off.
  *
- * The flags are std::atomic<bool>, relaxed load/store only (M0+ has no LDREX/STREX, so an
- * atomic RMW would emit an interrupt-masking libcall) -- which gives tear-free single reads
- * for the lock-free notify_* readers on core0. But a relaxed load THEN a relaxed store is
- * not atomic as a pair: two cores could both pass the "not connected" check and both
- * publish a connect. So connect()/disconnect() wrap ONLY the check-then-set of the flag in
- * an orb::osal::ScopedCritical (FreeRTOS SMP critical section -> spinlock + IRQ mask = true
- * cross-core mutual exclusion). The guarded body is two instructions; the build+FIFO-write
- * stays OUTSIDE the lock (each caller owns its scratch, and xbox_fifo_write is already
- * mutex-safe), so core1 is held off only at rare mount/umount events, never the stream path.
- * std::atomic<bool> has a constexpr constructor, so the static instance is constant-
- * initialised -> BSS, no global ctor.
+ * Because the owner task is the sole writer, the flag check-then-set needs NO critical
+ * section (the previous cross-core ScopedCritical is gone). connected_[] stays
+ * std::atomic<bool> with relaxed load/store only (M0+ has no LDREX/STREX): that gives
+ * tear-free single reads to the lock-free notify_* readers on the core0 device stack. A
+ * constexpr constructor keeps the static instance constant-initialised -> BSS, no global
+ * ctor.
  */
 #include "core/section.hpp"
 
@@ -46,7 +46,7 @@
 // xbox_fifo_write, the connect/disconnect/notify API) are plain C++ free functions
 // defined in C++ TUs, so include them normally.
 #include "instrument_manager.h"
-#include "osal/critical.hpp"
+#include "osal/queue.hpp"
 #include "packet_queue.h"
 #include "xbox_one_protocol.h"
 
@@ -113,24 +113,27 @@ class InstrumentManager {
         }
     }
 
-    void connect(instruments_e instrument, xbox_packet_t *scratch) {
-        if (!claim(instrument, /*want=*/true)) return;  // atomic not-connected -> connected
-        LOG_INFO(CAT_DEV, "%s connected!", instrument_name(instrument));
+    // Apply a hot-plug transition. Called ONLY by the owner task (core0), so the flag
+    // check-then-set is single-writer and needs no lock. Builds the add/drop packet into
+    // the manager's own scratch (owner-task-exclusive) and writes it to the device fifo.
+    //
+    // Ordering note: because the add/drop packet is now enqueued here (core0, deferred) while
+    // instrument INPUT reports still go straight to the device fifo from core1, the old
+    // happens-before ("add player" strictly precedes that player's first input, both on
+    // core1) no longer holds. In STATE_RUNNING the console can briefly see an input packet
+    // for an instrument it has not yet been told is connected. This is tolerated: the first
+    // HID report is a USB round-trip away and the owner task drains the connect first in
+    // practice; the console ignores input for an unannounced player. If it ever proves
+    // observable, gate input forwarding on an owner-set "announced" flag instead.
+    void apply(instruments_e instrument, bool connect) {
+        if (!claim(instrument, connect)) return;  // no state change -> nothing to notify
+        LOG_INFO(CAT_DEV, "%s %s!", instrument_name(instrument),
+                 connect ? "connected" : "disconnected");
 
         if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
 
-        build_packet(scratch, instrument, /*connect=*/true);
-        xbox_fifo_write(scratch);
-    }
-
-    void disconnect(instruments_e instrument, xbox_packet_t *scratch) {
-        if (!claim(instrument, /*want=*/false)) return;  // atomic connected -> not-connected
-        LOG_INFO(CAT_DEV, "%s disconnected!", instrument_name(instrument));
-
-        if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
-
-        build_packet(scratch, instrument, /*connect=*/false);
-        xbox_fifo_write(scratch);
+        build_packet(&scratch_, instrument, connect);
+        xbox_fifo_write(&scratch_);
     }
 
    private:
@@ -138,12 +141,11 @@ class InstrumentManager {
     static constexpr std::array<instruments_e, kInstrumentCount> kAllInstruments{
         GUITAR_ONE, GUITAR_TWO, DRUMS};
 
-    // Atomically transition connected_[instrument] to `want`, returning true iff THIS call
-    // performed the transition (i.e. the flag was not already `want`). The load+store pair is
-    // guarded by a cross-core critical section so two cores can't both win the same
-    // transition (a relaxed load-then-store is not atomic as a pair on M0+).
+    // Transition connected_[instrument] to `want`, returning true iff THIS call performed the
+    // transition (i.e. the flag was not already `want`). No lock: the owner task is the sole
+    // writer, so the load-then-store pair can't race another writer. Relaxed atomics keep the
+    // notify_* readers on the core0 device stack tear-free.
     bool claim(instruments_e instrument, bool want) {
-        orb::osal::ScopedCritical guard;
         if (connected_[idx(instrument)].load(kRlx) == want) return false;
         connected_[idx(instrument)].store(want, kRlx);
         return true;
@@ -159,15 +161,27 @@ class InstrumentManager {
     }
 
     std::array<std::atomic<bool>, kInstrumentCount> connected_{};  // all false -> BSS
+    xbox_packet_t scratch_{};  // owner-task-exclusive add/drop-packet scratch
 };
 
 InstrumentManager g_instruments;
+
+// One event per hot-plug edge. Trivially copyable so it moves through the OSAL queue by
+// memcpy. Depth 8 comfortably covers 3 instruments churning; a full queue drops the event
+// (logged) rather than ever blocking a producer -- the alternative that wedged core1.
+struct InstrumentEvent {
+    instruments_e instrument;
+    bool connect;
+};
+orb::osal::Queue<InstrumentEvent, 8> g_events;
 
 }  // namespace
 }  // namespace orb::service
 
 // --- public API (plain C++ free functions, declared in instrument_manager.h) ------------
-// The consumers call these unchanged; they forward into the single InstrumentManager.
+// notify_* forward straight into the manager (core0 readers). connect/disconnect are the
+// driver-facing producers: they only enqueue an event, so they never lock/block and are
+// safe on core1's USB umount path. The single owner task applies them.
 
 void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space) {
     orb::service::g_instruments.notify_all(scratch_space);
@@ -177,10 +191,22 @@ void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t *s
     orb::service::g_instruments.notify_single(instrument, scratch_space);
 }
 
-void connect_instrument(instruments_e instrument, xbox_packet_t *scratch_space) {
-    orb::service::g_instruments.connect(instrument, scratch_space);
+void connect_instrument(instruments_e instrument) {
+    if (!orb::service::g_events.send({instrument, /*connect=*/true}))
+        LOG_WARN(CAT_DEV, "instrument event queue full; dropped connect %d",
+                 std::to_underlying(instrument));
 }
 
-void disconnect_instrument(instruments_e instrument, xbox_packet_t *scratch_space) {
-    orb::service::g_instruments.disconnect(instrument, scratch_space);
+void disconnect_instrument(instruments_e instrument) {
+    if (!orb::service::g_events.send({instrument, /*connect=*/false}))
+        LOG_WARN(CAT_DEV, "instrument event queue full; dropped disconnect %d",
+                 std::to_underlying(instrument));
+}
+
+void instrument_manager_init() { orb::service::g_events.create(); }
+
+void instrument_manager_service() {
+    orb::service::InstrumentEvent ev;
+    if (orb::service::g_events.recv_blocking(ev))  // park until a hot-plug event arrives
+        orb::service::g_instruments.apply(ev.instrument, ev.connect);
 }

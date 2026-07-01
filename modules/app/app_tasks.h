@@ -15,6 +15,7 @@ extern "C" {
 void usb_host_task(void *param);
 void usb_device_task(void *param);  // device stack + send drain
 void drum_input_task(void *param);  // USB-MIDI + serial instrument input
+void instrument_task(void *param);  // sole applier of instrument connect/disconnect events
 void housekeeping_task(void *param);  // announce + recovery + log drain
 
 // Create all application tasks with their stacks/affinities. Call once from main()

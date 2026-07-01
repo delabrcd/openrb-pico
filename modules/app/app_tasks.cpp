@@ -23,17 +23,23 @@ static constexpr UBaseType_t kHousekeepingPriority = configMAX_PRIORITIES - 4;  
 static constexpr size_t kUsbHostStackWords = 2048;
 static constexpr size_t kUsbDeviceStackWords = 1536;
 static constexpr size_t kDrumInputStackWords = 1024;
+static constexpr size_t kInstrumentStackWords = 768;
 static constexpr size_t kHousekeepingStackWords = 768;
 
 static orb::osal::Task<kUsbHostStackWords> s_usb_host_task;
 static orb::osal::Task<kUsbDeviceStackWords> s_usb_device_task;
 static orb::osal::Task<kDrumInputStackWords> s_drum_input_task;
+static orb::osal::Task<kInstrumentStackWords> s_instrument_task;
 static orb::osal::Task<kHousekeepingStackWords> s_housekeeping_task;
 
 extern "C" void app_start_tasks(void) {
     s_usb_host_task.start("usb_host", usb_host_task, nullptr, kUsbTaskPriority, kCore1Affinity);
     s_usb_device_task.start("usb_dev", usb_device_task, nullptr, kUsbTaskPriority, kCore0Affinity);
     s_drum_input_task.start("drum_in", drum_input_task, nullptr, kInputPriority, kCore0Affinity);
+    // Instrument hot-plug applier. Same priority as drum input (both core0, event-driven and
+    // mostly parked); it drains the instrument event queue posted by the USB mount/umount
+    // callbacks. Pinned to core0 so no feature logic runs on the PIO-USB host core.
+    s_instrument_task.start("instr", instrument_task, nullptr, kInputPriority, kCore0Affinity);
     s_housekeeping_task.start("housekeep", housekeeping_task, nullptr, kHousekeepingPriority,
                               kCore0Affinity);
 }

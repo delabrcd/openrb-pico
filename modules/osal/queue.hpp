@@ -50,6 +50,12 @@ class Queue {
     bool send(const T& item) { return xQueueSend(handle_, &item, 0) == pdTRUE; }
     bool recv(T& out) { return xQueueReceive(handle_, &out, 0) == pdTRUE; }
 
+    // Blocking dequeue: park the calling task until an item arrives. For a dedicated
+    // consumer task that has nothing else to do (e.g. the instrument owner task) — it
+    // costs zero CPU while idle and wakes immediately on send(). portMAX_DELAY stays
+    // inside osal so callers never name a FreeRTOS symbol (portability boundary).
+    bool recv_blocking(T& out) { return xQueueReceive(handle_, &out, portMAX_DELAY) == pdTRUE; }
+
     QueueHandle_t handle() const { return handle_; }
 
    private:

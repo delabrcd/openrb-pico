@@ -40,16 +40,15 @@ static bool drums_sending_active_sense = false;
 inline constexpr uint32_t kOneSecondMs = 1000u;
 inline constexpr uint32_t kDisconnectTimeoutMs = 90000u;  // 90 s (not 15 min -- see note above)
 
-static xbox_packet_t out_packet;
-
 // Timer-service-task callback (kernel-called, C-linkage symbol). Stays a free
 // extern "C" function and stays in RAM (__not_in_flash_func) — it finds its state via
-// the file-static drums_connected / out_packet, exactly as before, so the timer id is
-// left null at create().
+// the file-static drums_connected, exactly as before, so the timer id is left null at
+// create(). The disconnect notify is just an event post now (owner task builds the packet),
+// so this callback no longer needs a scratch packet.
 extern "C" void ORB_FAST(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
     (void)xTimer;
     if (drums_connected.load(std::memory_order_relaxed)) {
-        disconnect_instrument(DRUMS, &out_packet);
+        disconnect_instrument(DRUMS);
         drums_connected.store(false, std::memory_order_relaxed);
     }
 }
@@ -115,7 +114,7 @@ int ORB_FAST(serial_midi_read)(std::uint8_t* buf) {
 
         if (status_byte) {
             if (!drums_connected.load(std::memory_order_relaxed)) {
-                connect_instrument(DRUMS, &out_packet);
+                connect_instrument(DRUMS);
                 drums_connected.store(true, std::memory_order_relaxed);
             }
             reset_disconnect_timer();

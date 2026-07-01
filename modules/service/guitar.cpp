@@ -61,12 +61,12 @@ class Guitar {
     std::uint8_t dev_addr() const { return dev_addr_; }
 
     void connect(std::uint8_t dev_addr) {
-        connect_instrument(player_, &out_packet_);
+        connect_instrument(player_);  // posts an event; owner task (core0) does the notify
         dev_addr_ = dev_addr;
     }
 
     void disconnect() {
-        disconnect_instrument(player_, &out_packet_);
+        disconnect_instrument(player_);  // non-blocking on core1's umount path
         dev_addr_ = 0;
     }
 
