@@ -31,6 +31,24 @@ services:
       - .:/work
     profiles: [oneshot]          # not started by `up`; use `compose run --rm build ...`
 
+  mcp:
+    <<: *base
+    volumes:
+      - .:/work
+    environment:
+      PROJECT_ROOT: /work
+      # Which build tree's compile_commands.json clangd indexes. build-debug is the
+      # -Og debug variant (scripts/build.sh debug); override for build-release etc.
+      COMPILE_COMMANDS_DIR: "${ORB_CC_DIR:-/work/build-debug}"
+      CLANGD_PATH: /usr/bin/clangd
+      # --query-driver: let clangd interrogate the cross gcc for its system includes
+      # (mirrors .vscode/settings.json). --background-index writes into /work/.cache
+      # (gitignored). -header-insertion=never keeps it from suggesting #includes.
+      CLANGD_ARGS: "--query-driver=/usr/bin/arm-none-eabi-* --header-insertion=never --background-index"
+    command: ["clangd-mcp-server"]
+    profiles: [oneshot]          # not started by `up`; launched as a stdio MCP server
+                                 # via `compose run --rm --no-deps -T mcp` (see .mcp.json)
+
   dbg:
     <<: *base
     privileged: true
