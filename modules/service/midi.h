@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <optional>
@@ -72,12 +73,12 @@ class SerialMidi {
     // the scheduler starts (matches the old serial_midi_init timing).
     void init();
 
-    // Parse bytes off the UART into buf; returns 3 when a complete 3-byte message is ready,
-    // 0 otherwise (matches the old serial_midi_read semantics exactly).
-    int read(std::uint8_t* buf);
+    // Parse bytes off the UART; returns a complete 3-byte message when one is ready,
+    // std::nullopt otherwise (was: returned 3 / 0 and wrote through a uint8_t* buffer).
+    std::optional<std::array<std::uint8_t, 3>> read();
 
-    // Body of the FreeRTOS disconnect-timer callback (see on_disconnect_timeout_cb in
-    // midi.cpp, which is the real kernel-called C-linkage symbol).
+    // Drum-disconnect timeout body; invoked by the osal::Timer member-pointer callback shim
+    // (see setup_disconnect_timer / osal::Timer::create<T,&M>). No C-linkage symbol remains.
     void on_disconnect_timeout();
 
    private:
@@ -99,14 +100,7 @@ class SerialMidi {
 
 }  // namespace orb::service
 
-// Plain C++ free functions (every consumer is a C++ TU); thin forwarders into the single
+// Plain C++ free function (every consumer is a C++ TU); thin forwarder into the single
 // orb::service::SerialMidi instance owned by orb::app::System, defined in the app-layer
 // composition-root bridge (modules/app/system.cpp).
 void serial_midi_init();
-int serial_midi_read(std::uint8_t* buf);
-
-// Bridge forwarder for the FreeRTOS disconnect-timer callback (defined in system.cpp ->
-// forwards to system().serial_midi().on_disconnect_timeout()). Declared here so the
-// extern "C" on_disconnect_timeout_cb in midi.cpp (kernel-called, stays in midi.cpp) can
-// call it.
-void serial_midi_on_disconnect_timeout();

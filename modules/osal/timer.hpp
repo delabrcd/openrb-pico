@@ -18,14 +18,14 @@
  * duration (it must outlive the timer).
  *
  *   static orb::osal::Timer s_disconnect_timer;
- *   s_disconnect_timer.create("midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES),
- *                             false, on_disconnect_timeout_cb);  // false == one-shot
+ *   s_disconnect_timer.create<SerialMidi, &SerialMidi::on_disconnect_timeout>(
+ *       "midi_disc", pdMS_TO_TICKS(FIFTEEN_MINUTES), false, midi);  // false == one-shot
  *   s_disconnect_timer.change_period(pdMS_TO_TICKS(ONE_SECOND), 0);  // re-arm, no block
  *
- * The timer callback stays a free `extern "C"` function (it is a C-linkage symbol the
- * kernel's timer-service task calls — keep any __not_in_flash_func placement on it).
  * pvTimerGetTimerID(handle) / id() retrieve the stashed void* id if the callback needs
- * to find per-timer state through the handle rather than a file-static.
+ * to find per-timer state through the handle rather than a file-static -- note the
+ * member-pointer create() overload below consumes that slot to stash &obj, so id() is
+ * unavailable on a timer created that way.
  */
 #pragma once
 
@@ -47,6 +47,21 @@ class Timer {
         return handle_;
     }
 
+    // Typed member-function callback: bind an object + a compile-time member pointer so the
+    // timer body is `obj.Method()` with NO FreeRTOS type or void* at the call site. FreeRTOS
+    // still receives a plain TimerCallbackFunction_t (its mandated C ABI); the timer's
+    // pvTimerID slot carries &obj and is dereferenced only in trampoline() below -- the one
+    // place a raw pointer is touched. Because Method is a compile-time constant,
+    // (obj.*Method)() lowers to a direct call, identical codegen to a free-function callback.
+    // NOTE: this overload consumes the pvTimerID slot to stash &obj, so id() is unavailable on
+    // a timer created this way (mutually exclusive with the void* id overload above).
+    template <typename T, void (T::*Method)()>
+    TimerHandle_t create(const char *name, TickType_t period_ticks, bool auto_reload, T &obj) {
+        handle_ = xTimerCreateStatic(name, period_ticks, auto_reload ? pdTRUE : pdFALSE,
+                                     &obj, &trampoline<T, Method>, &ctrl_);
+        return handle_;
+    }
+
     // Set a new period and (re)start the timer. xTimerChangePeriod also starts/restarts
     // a dormant timer, giving "cancel + re-arm" semantics. Returns true if the command
     // was queued to the timer-service task. `ticks_to_wait` is the block time on the
@@ -59,6 +74,13 @@ class Timer {
     void *id() const { return pvTimerGetTimerID(handle_); }
 
    private:
+    // The sole place the FreeRTOS timer-callback ABI + void* id are handled: recover the typed
+    // object from the timer id and dispatch to its member. Never propagates outward.
+    template <typename T, void (T::*Method)()>
+    static void trampoline(TimerHandle_t handle) {
+        (static_cast<T *>(pvTimerGetTimerID(handle))->*Method)();
+    }
+
     StaticTimer_t ctrl_;                 // timer control block
     TimerHandle_t handle_ = nullptr;
 };

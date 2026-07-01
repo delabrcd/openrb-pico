@@ -82,7 +82,7 @@ void InstrumentManager::notify_all(xbox_packet_t &scratch) {
     LOG_DBG(CAT_DEV, "notify_xbox_of_all_instruments");
     for (instruments_e instrument : kAllInstruments) {
         if (!connected_[idx(instrument)].load(kRlx)) continue;
-        build_packet(&scratch, instrument, /*connect=*/true);
+        build_packet(scratch, instrument, /*connect=*/true);
         txfifo_.write(scratch);
     }
 }
@@ -91,7 +91,7 @@ void InstrumentManager::notify_single(instruments_e instrument, xbox_packet_t &s
     if (instrument < N_INSTRUMENTS) {
         LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s",
                 std::to_underlying(instrument), instrument_name(instrument));
-        build_packet(&scratch, instrument, /*connect=*/true);
+        build_packet(scratch, instrument, /*connect=*/true);
         txfifo_.write(scratch);
     } else {
         LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d", std::to_underlying(instrument));
@@ -112,7 +112,7 @@ void InstrumentManager::apply(instruments_e instrument, bool connect) {
 
     if (adapter_.state() != adapter_state_t::STATE_RUNNING) return;
 
-    build_packet(&scratch_, instrument, connect);
+    build_packet(scratch_, instrument, connect);
     txfifo_.write(scratch_);
 }
 
@@ -142,12 +142,12 @@ bool InstrumentManager::claim(instruments_e instrument, bool want) {
     return true;
 }
 
-void InstrumentManager::build_packet(xbox_packet_t *pkt, instruments_e instrument, bool connect) {
+void InstrumentManager::build_packet(xbox_packet_t &pkt, instruments_e instrument, bool connect) {
     const std::span<const std::uint8_t> src =
         connect ? std::span<const std::uint8_t>{instrument_notify[idx(instrument)]}
                 : std::span<const std::uint8_t>{instrument_drop_out[idx(instrument)]};
-    std::ranges::copy(src, std::span<std::uint8_t>{pkt->buffer}.begin());
-    init_packet(pkt, 0, static_cast<std::uint8_t>(src.size()));
+    std::ranges::copy(src, std::span<std::uint8_t>{pkt.buffer}.begin());
+    init_packet(&pkt, 0, static_cast<std::uint8_t>(src.size()));
 }
 
 }  // namespace orb::service

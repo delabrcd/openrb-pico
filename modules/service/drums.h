@@ -24,14 +24,16 @@ namespace orb::service {
 
 // Consumes parsed MIDI (NoteOn -> a pad/cymbal lane; ControlChange -> the gated hi-hat
 // pedal state machine) from two sources -- the USB-host note queue (produced on core1 by
-// read_midi_host()) and the core0 serial-MIDI parser -- and publishes an Xbox drum input
-// packet, deduped per lane, with TRIGGER_HOLD_MS auto-clear and an ADAPTER_OUT_INTERVAL
-// emit rate.
+// drums_read_midi_host(), modules/driver/drums_midi_seam.cpp) and the core0 serial-MIDI
+// parser -- and publishes an Xbox drum input packet, deduped per lane, with TRIGGER_HOLD_MS
+// auto-clear and an ADAPTER_OUT_INTERVAL emit rate. No dependency on the vendored USB stack:
+// the TinyUSB MIDI host callback seam, the connected-device address, and the FIFO drain all
+// live in the driver seam TU; this class only reacts to
+// on_midi_connected()/on_midi_disconnected().
 //
 // Threading: input_pkt_ is written on core0 ONLY (tick(): lane bits + init_packet + the
-// fifo write). on_midi_mount/on_midi_umount run on core1 but only post a hot-plug event
-// via instruments_.post_connect/post_disconnect -- they never touch input_pkt_. read_midi_host
-// (core1) likewise only feeds the midi_notes_ queue and never touches input_pkt_.
+// fifo write). on_midi_connected/on_midi_disconnected run on core1 but only post a hot-plug
+// event via instruments_.post_connect/post_disconnect -- they never touch input_pkt_.
 class DrumEngine {
    public:
     DrumEngine(orb::service::AdapterState& adapter,
@@ -52,13 +54,14 @@ class DrumEngine {
     // --- core0: drum_task body -----------------------------------------------------------
     void tick();
 
-    // --- core1: drain the USB-host MIDI FIFO ----------------------------------------------
-    void read_midi_host();
+    // --- core1: TinyUSB host MIDI connect/disconnect (called from the driver seam) --------
+    void on_midi_connected() { instruments_.post_connect(DRUMS); }
+    void on_midi_disconnected() { instruments_.post_disconnect(DRUMS); }
 
-    // --- core1: TinyUSB host MIDI mount/umount --------------------------------------------
-    void on_midi_mount(std::uint8_t dev_addr, std::uint8_t in_ep, std::uint8_t out_ep,
-                       std::uint8_t num_cables_rx, std::uint16_t num_cables_tx);
-    void on_midi_umount(std::uint8_t dev_addr, std::uint8_t instance);
+    // --- core1: push one parsed USB-host MIDI message into the note queue for tick() (core0)
+    // to consume. Called from the driver seam (drums_read_midi_host) via the SeamAnchor, so the
+    // producer stays inside DI instead of reaching a global midi_note_send(). Non-blocking.
+    void push_host_note(const midi_note_t& note) { midi_notes_.send(note); }
 
    private:
     struct output_state_t {
@@ -78,7 +81,6 @@ class DrumEngine {
     orb::service::InstrumentManager& instruments_;
 
     xbox_packet_t input_pkt_;
-    std::uint8_t midi_dev_addr_ = 0;
     std::array<output_state_t, kNumOut> midi_output_states_{};
     bool changed_ = false;
 #if ORB_HIHAT_MODE >= 2
@@ -91,20 +93,9 @@ class DrumEngine {
 
 }  // namespace orb::service
 
-// Plain C++ free functions (every consumer is a C++ TU); thin forwarders into
-// orb::service::DrumEngine, defined in the app-layer bridge (modules/app/system.cpp).
+// Plain C++ free function (every consumer is a C++ TU); thin forwarder into
+// orb::service::DrumEngine::tick(), defined in the app-layer bridge (modules/app/system.cpp).
 
 // Drives the drum input packet from the MIDI sources. Called every tick from the
 // core0 drum_input_task (see app/main.cpp).
 void drum_task();
-
-// Runs on core1 (owns the USB host stack): drains the USB-host MIDI FIFO and pushes
-// each parsed message onto the MIDI note queue for drum_task (core0) to consume.
-void drums_read_midi_host(void);
-
-// Bridge forwarders for the TinyUSB host MIDI mount/umount seam (defined in system.cpp ->
-// forward to system().drums().on_midi_mount/on_midi_umount). Declared here so drums.cpp's
-// extern "C" tuh_midi_*_cb callbacks can call them.
-void drums_on_midi_mount(std::uint8_t dev_addr, std::uint8_t in_ep, std::uint8_t out_ep,
-                         std::uint8_t num_cables_rx, std::uint16_t num_cables_tx);
-void drums_on_midi_umount(std::uint8_t dev_addr, std::uint8_t instance);

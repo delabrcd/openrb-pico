@@ -1,13 +1,18 @@
 #pragma once
 
 // USB HID guitar input driver, as modern-C++ classes: orb::driver::Guitar (one connected
-// slot) and orb::service::GuitarHost (the two-slot owner, reached by TinyUSB's tuh_hid_*_cb
-// seam through the bridge forwarders declared at the bottom of this file). Declared here so
+// slot) and orb::service::GuitarHost (the two-slot owner). GuitarHost has no dependency on
+// the vendored USB stack -- the TinyUSB HID host callback seam and the vendor operations it
+// used (fetching the VID/PID, requesting the next report) live in
+// modules/driver/guitar_hid_driver.cpp, which calls mount()/report_received() below and uses
+// their bool return to decide whether to (re-)request the next report. Declared here so
 // orb::app::System can own a GuitarHost instance as a plain member; method bodies stay in
 // guitar.cpp.
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <span>
 
 #include "instrument_manager.h"  // orb::service::InstrumentManager, instruments_e
@@ -41,31 +46,30 @@ class Guitar {
 
 namespace orb::service {
 
-// Owns the two guitar slots (GUITAR_ONE, GUITAR_TWO) and the TinyUSB HID mount/umount/report
+// Owns the two guitar slots (GUITAR_ONE, GUITAR_TWO) and the HID mount/umount/report
 // bookkeeping that used to live as free functions + file-static g_guitars in guitar.cpp.
+// No dependency on the vendored USB stack: mount()/report_received() take the
+// already-fetched VID/PID and report bytes and return whether the caller (the driver seam)
+// should ask the USB stack for the next report -- they never touch it themselves.
 class GuitarHost {
    public:
     GuitarHost(orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
               orb::service::InstrumentManager& instruments);
 
-    void mount(std::uint8_t dev_addr, std::uint8_t instance);
+    // Returns true iff a supported guitar was assigned a free slot -- the driver seam should
+    // request the first report iff this returns true.
+    bool mount(std::uint8_t dev_addr, std::uint8_t instance, std::uint16_t vid,
+              std::uint16_t pid);
     void umount(std::uint8_t dev_addr);
-    void report_received(std::uint8_t dev_addr, std::uint8_t instance,
-                         std::span<const std::uint8_t> report);
+    // Returns true iff a connected slot was found for dev_addr -- the driver seam should
+    // re-request the next report iff this returns true.
+    bool report_received(std::uint8_t dev_addr, std::span<const std::uint8_t> report);
 
    private:
-    orb::driver::Guitar* find_guitar(std::uint8_t dev_addr);
-    orb::driver::Guitar* first_free_slot();
+    std::optional<std::reference_wrapper<orb::driver::Guitar>> find_guitar(std::uint8_t dev_addr);
+    std::optional<std::reference_wrapper<orb::driver::Guitar>> first_free_slot();
 
     std::array<orb::driver::Guitar, 2> guitars_;
 };
 
 }  // namespace orb::service
-
-// Bridge forwarders for the TinyUSB host HID seam (defined in system.cpp -> forward to
-// system().guitars().mount/umount/report_received). Declared here so guitar.cpp's
-// extern "C" tuh_hid_*_cb callbacks can call them.
-void guitar_on_hid_mount(std::uint8_t dev_addr, std::uint8_t instance);
-void guitar_on_hid_umount(std::uint8_t dev_addr);
-void guitar_on_hid_report(std::uint8_t dev_addr, std::uint8_t instance,
-                          std::span<const std::uint8_t> report);

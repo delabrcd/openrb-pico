@@ -99,7 +99,7 @@ class InstrumentManager {
     bool claim(instruments_e instrument, bool want);
 
     // Copy an instrument's full wire row into the scratch packet and stamp its length.
-    static void build_packet(xbox_packet_t* pkt, instruments_e instrument, bool connect);
+    static void build_packet(xbox_packet_t& pkt, instruments_e instrument, bool connect);
 
     orb::service::AdapterState& adapter_;
     orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo_;
@@ -116,8 +116,8 @@ class InstrumentManager {
 // Re-announce the currently-connected instruments to the console. These only READ the
 // connection state and build into the CALLER's scratch, so they stay callable directly
 // from the core0 device stack (announce / CMD_ANNOUNCE handling).
-void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space);
-void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t *scratch_space);
+void notify_xbox_of_all_instruments(xbox_packet_t& scratch_space);
+void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t& scratch_space);
 
 // Driver-facing hot-plug API. connect/disconnect_instrument POST an event to the
 // instrument owner task and return immediately -- they NEVER take a lock or block, so they

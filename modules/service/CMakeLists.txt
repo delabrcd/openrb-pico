@@ -7,10 +7,12 @@
 # downward. driver/app reach them by linking service.
 #
 # INTERFACE library (see modules/log/CMakeLists.txt). Downward module edges: core/protocol
-# /osal/log + board (the per-board midi.cpp needs orb_bsp.h). This layer is not yet
-# SDK-free (P3 in docs/architecture/modern-cpp.md): guitar.cpp uses tusb.h + hid_host,
-# drums.cpp uses usb_midi_host.h + board_api.h, and midi/drums poke hardware/* and <pico.h>
-# directly -- all of which resolve through the executable's vendored links.
+# /osal/log + board (the per-board midi.cpp needs orb_bsp.h). As of the P3 step in
+# docs/architecture/modern-cpp.md, guitar.cpp and drums.cpp are USB-stack-free -- their
+# extern "C" host-callback seams (and the vendor operations they used) moved to
+# modules/driver/ (guitar_hid_driver.cpp, drums_midi_seam.cpp), which links this target.
+# midi.cpp still pokes hardware/* and the Pico SDK directly (board UART), resolved through
+# the executable's vendored links.
 #
 # midi.cpp is BOARD-DEPENDENT (includes orb_bsp.h -> needs ORB_BOARD_ID): it is NOT an
 # INTERFACE source here but is exported via ORB_SERVICE_BOARD_SOURCES and compiled per-board

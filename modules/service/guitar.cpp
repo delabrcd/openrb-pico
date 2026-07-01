@@ -1,12 +1,13 @@
 /*
  * USB HID guitar input driver, as modern-C++ classes (orb::driver::Guitar,
- * orb::service::GuitarHost) behind the unchanged extern "C" TinyUSB host callbacks
- * (tuh_hid_*). Same seam pattern as the other rewrites: TinyUSB calls IN through fixed
- * C-linkage symbols, each of which is a thin shim that forwards through the app-layer
- * bridge (system.cpp) into the C++ state owned by orb::app::System. A self-contained
- * HID-input driver: parse a guitar HID report and emit a byte-identical Xbox input packet
- * via the injected DeviceTxFifo, plus the connect/disconnect-instrument notifications and
- * the two-guitar limit.
+ * orb::service::GuitarHost). No dependency on the vendored USB stack: the extern "C" TinyUSB
+ * HID host callback seam and the vendor operations it used (fetching the VID/PID, requesting
+ * the next report) live in modules/driver/guitar_hid_driver.cpp, which calls
+ * GuitarHost::mount()/report_received() below and uses their bool return value to decide
+ * whether to (re-)request the next report -- see that file for the seam. A self-contained
+ * HID-input driver: parse a guitar HID report and emit a byte-identical Xbox input packet via
+ * the injected DeviceTxFifo, plus the connect/disconnect-instrument notifications and the
+ * two-guitar limit.
  *
  * Slot identity: GUITAR_ONE == 0 and GUITAR_TWO == 1 are contiguous, so the array index
  * doubles as the player id. Each Guitar owns its own out_packet scratch + the address of
@@ -18,13 +19,11 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <span>
 #include <utility>  // std::to_underlying
 
-// clang-format off
-#include "tusb.h" // IWYU pragma: export
-#include "class/hid/hid_host.h"
-// clang-format on
 #include "orb_debug.h"
 #include "orb_log.h"
 
@@ -85,83 +84,50 @@ GuitarHost::GuitarHost(orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
     : guitars_{orb::driver::Guitar{GUITAR_ONE, txfifo, instruments},
                orb::driver::Guitar{GUITAR_TWO, txfifo, instruments}} {}
 
-orb::driver::Guitar* GuitarHost::find_guitar(std::uint8_t dev_addr) {
+std::optional<std::reference_wrapper<orb::driver::Guitar>> GuitarHost::find_guitar(
+    std::uint8_t dev_addr) {
     for (orb::driver::Guitar& g : guitars_)
-        if (g.dev_addr() == dev_addr) return &g;
-    return nullptr;
+        if (g.dev_addr() == dev_addr) return g;
+    return std::nullopt;
 }
 
-orb::driver::Guitar* GuitarHost::first_free_slot() {
+std::optional<std::reference_wrapper<orb::driver::Guitar>> GuitarHost::first_free_slot() {
     for (orb::driver::Guitar& g : guitars_)
-        if (g.dev_addr() == 0) return &g;
-    return nullptr;
+        if (g.dev_addr() == 0) return g;
+    return std::nullopt;
 }
 
-void GuitarHost::mount(std::uint8_t dev_addr, std::uint8_t instance) {
-    std::uint16_t vid = 0, pid = 0;
-    tuh_vid_pid_get(dev_addr, &vid, &pid);
-
+bool GuitarHost::mount(std::uint8_t dev_addr, std::uint8_t instance, std::uint16_t vid,
+                       std::uint16_t pid) {
     LOG_INFO(CAT_DRUM, "HID device address = %d, instance = %d is mounted", dev_addr, instance);
     LOG_DBG(CAT_DRUM, "VID = %04x, PID = %04x", vid, pid);
 
-    if (!orb::driver::is_supported_guitar(vid, pid)) return;
+    if (!orb::driver::is_supported_guitar(vid, pid)) return false;
 
     LOG_INFO(CAT_DRUM, "GUITAR is in supported list");
 
-    orb::driver::Guitar* slot = first_free_slot();
-    if (slot == nullptr) {
+    auto slot = first_free_slot();
+    if (!slot) {
         LOG_WARN(CAT_DRUM, "Already have 2 guitars connected, can't add another...");
-        return;
+        return false;
     }
-    slot->connect(dev_addr);
-
-    // we need to request the first report
-    if (!tuh_hid_receive_report(dev_addr, instance)) {
-        LOG_ERR(CAT_DRUM, "Error: cannot request to receive report");
-    }
+    slot->get().connect(dev_addr);
+    return true;
 }
 
 void GuitarHost::umount(std::uint8_t dev_addr) {
-    if (orb::driver::Guitar* g = find_guitar(dev_addr)) g->disconnect();
+    if (auto g = find_guitar(dev_addr)) g->get().disconnect();
 }
 
-void GuitarHost::report_received(std::uint8_t dev_addr, std::uint8_t instance,
-                                 std::span<const std::uint8_t> report) {
+bool GuitarHost::report_received(std::uint8_t dev_addr, std::span<const std::uint8_t> report) {
     LOG_TRC(CAT_WIRE, "Report Received");
     LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, report.data(), report.size());
 
-    orb::driver::Guitar* g = find_guitar(dev_addr);
-    if (g == nullptr) return;
+    auto g = find_guitar(dev_addr);
+    if (!g) return false;
 
-    g->on_report(report);
-
-    // continue to request to receive report
-    if (!tuh_hid_receive_report(dev_addr, instance)) {
-        LOG_ERR(CAT_DRUM, "Error: cannot request to receive report");
-    }
+    g->get().on_report(report);
+    return true;
 }
 
 }  // namespace orb::service
-
-// --- extern "C" TinyUSB host seam -------------------------------------------------------
-// TinyUSB calls these by C symbol; each is a thin shim forwarding through the app-layer
-// bridge (system.cpp), which reaches the single GuitarHost instance owned by
-// orb::app::System -- service/ TUs never include app/ headers, so this file cannot reach
-// System directly.
-
-extern "C" void tuh_hid_mount_cb(std::uint8_t dev_addr, std::uint8_t instance,
-                                 std::uint8_t const* desc_report, std::uint16_t desc_len) {
-    (void)desc_report;
-    (void)desc_len;
-    guitar_on_hid_mount(dev_addr, instance);
-}
-
-extern "C" void tuh_hid_umount_cb(std::uint8_t dev_addr, std::uint8_t idx) {
-    (void)idx;
-    guitar_on_hid_umount(dev_addr);
-}
-
-extern "C" void tuh_hid_report_received_cb(std::uint8_t dev_addr, std::uint8_t instance,
-                                           std::uint8_t const* report, std::uint16_t len) {
-    guitar_on_hid_report(dev_addr, instance, {report, len});
-}

@@ -77,4 +77,11 @@ class System {
 System& system();
 void system_init();
 
+// Binds the driver-owned TinyUSB seams (modules/driver/guitar_hid_driver.h,
+// modules/driver/drums_midi_seam.h) to this System's GuitarHost/DrumEngine instances. Must be
+// called after system_init() and before tuh_init() runs (main.cpp's init(), right after
+// orb::app::system_init()) -- see modules/core/seam_anchor.hpp for why the bind must happen
+// before the vendor stack that fires the seam starts.
+void bind_usb_seams();
+
 }  // namespace orb::app

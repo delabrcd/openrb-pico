@@ -11,9 +11,11 @@
 #include "system.hpp"
 
 #include <optional>
-#include <span>
 
 #include "core/section.hpp"  // ORB_FAST -- preserved on the drum/serial-midi hot entry points
+
+#include "drums_midi_seam.h"    // orb::driver::bind_drums_midi
+#include "guitar_hid_driver.h"  // orb::driver::bind_guitar_hid
 
 namespace orb::app {
 namespace {
@@ -22,6 +24,11 @@ std::optional<System> g_system;
 
 System& system() { return *g_system; }
 void system_init() { g_system.emplace(); }
+
+void bind_usb_seams() {
+    orb::driver::bind_guitar_hid(system().guitars());
+    orb::driver::bind_drums_midi(system().drums());
+}
 
 }  // namespace orb::app
 
@@ -50,16 +57,13 @@ void app_queues_init(void) {
 bool host_tx_send(const xbox_packet_t *pkt) { return orb::app::system().host_tx().send(*pkt); }
 bool host_tx_recv(xbox_packet_t *pkt) { return orb::app::system().host_tx().recv(*pkt); }
 
-bool midi_note_send(const midi_note_t *n) { return orb::app::system().midi_notes().send(*n); }
-bool midi_note_recv(midi_note_t *n) { return orb::app::system().midi_notes().recv(*n); }
-
 // --- instrument_manager.h forwarders ----------------------------------------------------
-void notify_xbox_of_all_instruments(xbox_packet_t *scratch_space) {
-    orb::app::system().instruments().notify_all(*scratch_space);
+void notify_xbox_of_all_instruments(xbox_packet_t& scratch_space) {
+    orb::app::system().instruments().notify_all(scratch_space);
 }
 
-void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t *scratch_space) {
-    orb::app::system().instruments().notify_single(instrument, *scratch_space);
+void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t& scratch_space) {
+    orb::app::system().instruments().notify_single(instrument, scratch_space);
 }
 
 void connect_instrument(instruments_e instrument) {
@@ -76,36 +80,6 @@ void instrument_manager_service() { orb::app::system().instruments().service_onc
 
 // --- midi.h forwarders -------------------------------------------------------------------
 void serial_midi_init() { orb::app::system().serial_midi().init(); }
-int ORB_FAST(serial_midi_read)(std::uint8_t *buf) {
-    return orb::app::system().serial_midi().read(buf);
-}
-void serial_midi_on_disconnect_timeout() {
-    orb::app::system().serial_midi().on_disconnect_timeout();
-}
 
 // --- drums.h forwarders ------------------------------------------------------------------
 void ORB_FAST(drum_task)() { orb::app::system().drums().tick(); }
-
-void ORB_FAST(drums_read_midi_host)(void) { orb::app::system().drums().read_midi_host(); }
-
-void drums_on_midi_mount(std::uint8_t dev_addr, std::uint8_t in_ep, std::uint8_t out_ep,
-                         std::uint8_t num_cables_rx, std::uint16_t num_cables_tx) {
-    orb::app::system().drums().on_midi_mount(dev_addr, in_ep, out_ep, num_cables_rx,
-                                             num_cables_tx);
-}
-
-void drums_on_midi_umount(std::uint8_t dev_addr, std::uint8_t instance) {
-    orb::app::system().drums().on_midi_umount(dev_addr, instance);
-}
-
-// --- guitar.h forwarders -----------------------------------------------------------------
-void guitar_on_hid_mount(std::uint8_t dev_addr, std::uint8_t instance) {
-    orb::app::system().guitars().mount(dev_addr, instance);
-}
-
-void guitar_on_hid_umount(std::uint8_t dev_addr) { orb::app::system().guitars().umount(dev_addr); }
-
-void guitar_on_hid_report(std::uint8_t dev_addr, std::uint8_t instance,
-                          std::span<const std::uint8_t> report) {
-    orb::app::system().guitars().report_received(dev_addr, instance, report);
-}

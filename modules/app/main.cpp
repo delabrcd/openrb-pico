@@ -47,6 +47,7 @@
 #include "system.hpp"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
+#include "drums_midi_seam.h"  // drums_read_midi_host (moved out of drums.h -- driver seam TU)
 
 inline constexpr uint8_t kHostControllerId = 1u;
 // FIRST_XBOX_CONTROLLER_IDX removed -- unused constant.
@@ -215,7 +216,7 @@ static void handle_auth(const xbox_packet_t *packet) {
         LOG_INFO(CAT_DEV, "AUTHENTICATED!");
         orb::service::adapter().set_state(adapter_state_t::STATE_RUNNING);
 
-        notify_xbox_of_all_instruments(&out_packet);
+        notify_xbox_of_all_instruments(out_packet);
     }
 
     LOG_DBG(CAT_DEV, "Sending controller %d bytes", packet->length);
@@ -271,10 +272,10 @@ static void handle_running(const xbox_packet_t *packet) {
             xboxh_send(packet);
             break;
         case frame_command_e::CMD_LIST_CONNECTED_INSTRUMENTS:
-            notify_xbox_of_all_instruments(&out_packet);
+            notify_xbox_of_all_instruments(out_packet);
             break;
         case frame_command_e::CMD_LIST_INSTRUMENT:
-            notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->buffer[4]), &out_packet);
+            notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->buffer[4]), out_packet);
             break;
         default:
             break;
@@ -574,6 +575,12 @@ static void init() {
     // Composition root: construct orb::app::System (adapter state, device TX fifo,
     // inter-task queues, InstrumentManager, ...) before any forwarder below can reach it.
     orb::app::system_init();
+
+    // Bind the TinyUSB HID/MIDI seams (modules/driver/guitar_hid_driver.h,
+    // modules/driver/drums_midi_seam.h) to this System's GuitarHost/DrumEngine. Must happen
+    // before tuh_init() runs (core1's configure_host(), launched later from main()) -- see
+    // modules/core/seam_anchor.hpp.
+    orb::app::bind_usb_seams();
 
     // Bring the cross-core adapter context up before anything can touch it
     // (state=STATE_NONE, no controller tracked, flags cleared).

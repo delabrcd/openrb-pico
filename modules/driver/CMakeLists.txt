@@ -14,6 +14,8 @@ target_sources(orb_driver INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/xbox_device_driver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/usb_descriptors.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/host_drivers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/guitar_hid_driver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/drums_midi_seam.cpp
     # PIO-USB glue (from the PIO example) -- pulled from our vendored TinyUSB tree.
     ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/dcd_pio_usb.c
     ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c)

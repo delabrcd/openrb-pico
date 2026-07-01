@@ -1,6 +1,7 @@
 #include "midi.h"
 
-#include <cstring>
+#include <array>
+#include <optional>
 #include <utility>  // std::to_underlying
 
 #include "core/section.hpp"
@@ -15,11 +16,6 @@
 inline constexpr uint32_t kOneSecondMs = 1000u;
 inline constexpr uint32_t kDisconnectTimeoutMs = 90000u;  // 90 s (not 15 min -- see note above)
 
-// Forward declaration: the real (extern "C", ORB_FAST) definition sits at the bottom of this
-// file, but SerialMidi::setup_disconnect_timer() (below) needs the symbol to pass to
-// orb::osal::Timer::create().
-extern "C" void on_disconnect_timeout_cb(TimerHandle_t xTimer);
-
 namespace orb::service {
 
 void SerialMidi::init() {
@@ -33,8 +29,8 @@ void SerialMidi::init() {
 }
 
 void SerialMidi::setup_disconnect_timer() {
-    disconnect_timer_.create("midi_disc", pdMS_TO_TICKS(kDisconnectTimeoutMs),
-                             false /*one-shot*/, on_disconnect_timeout_cb, nullptr);
+    disconnect_timer_.create<SerialMidi, &SerialMidi::on_disconnect_timeout>(
+        "midi_disc", pdMS_TO_TICKS(kDisconnectTimeoutMs), false /*one-shot*/, *this);
 }
 
 void ORB_FAST(SerialMidi::reset_disconnect_timer)() {
@@ -46,7 +42,7 @@ void ORB_FAST(SerialMidi::reset_disconnect_timer)() {
         pdMS_TO_TICKS(drums_sending_active_sense_ ? kOneSecondMs : kDisconnectTimeoutMs), 0);
 }
 
-int ORB_FAST(SerialMidi::read)(std::uint8_t* buf) {
+std::optional<std::array<std::uint8_t, 3>> ORB_FAST(SerialMidi::read)() {
     while (uart_->readable()) {
         bool status_byte = false;
         std::uint8_t data = static_cast<std::uint8_t>(uart_->read_byte());
@@ -90,13 +86,14 @@ int ORB_FAST(SerialMidi::read)(std::uint8_t* buf) {
 
         if (count_ >= 3) {
             LOG_TRC(CAT_MIDI, "serial midi msg");
-            memcpy(buf, note_on_message_, 3);
+            std::array<std::uint8_t, 3> msg{note_on_message_[0], note_on_message_[1],
+                                             note_on_message_[2]};
             count_ = 1;
-            return 3;
+            return msg;
         }
     }
 
-    return 0;
+    return std::nullopt;
 }
 
 void SerialMidi::on_disconnect_timeout() {
@@ -107,13 +104,3 @@ void SerialMidi::on_disconnect_timeout() {
 }
 
 }  // namespace orb::service
-
-// --- boundary ----------------------------------------------------------------------------
-// Timer-service-task callback (kernel-called, C-linkage symbol). Stays a free extern "C"
-// function and stays in RAM (__not_in_flash_func) -- it just delegates to the bridge
-// forwarder (system.cpp), which reaches the single SerialMidi instance owned by
-// orb::app::System. The timer id is left null at create(), same as before.
-extern "C" void ORB_FAST(on_disconnect_timeout_cb)(TimerHandle_t xTimer) {
-    (void)xTimer;
-    serial_midi_on_disconnect_timeout();
-}
