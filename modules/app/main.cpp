@@ -84,8 +84,6 @@ static std::atomic<uint32_t> g_host_last_rx_us{0};
 // g_host_rx_count: written core1 (xboxh_packet_received_cb), read core1
 // (host_recovery_task) -- single-core but atomic for symmetric treatment.
 static std::atomic<uint32_t> g_host_rx_count{0};
-// Read core0 (recovery_reboot_task), written core1 (host_recovery_task) -- genuinely cross-core.
-static std::atomic<bool> g_runtime_recovery_engaged{false};
 
 // tinyusb 0.18's enumeration uses blocking osal_task_delay() (= sleep_ms) on the
 // host core. sleep_ms hangs on the core running Pico-PIO-USB (it waits on an
@@ -343,7 +341,7 @@ static void configure_host() {
 // well-tested attach/detach path; only the wedged silicon needs the RESET# kick.
 //
 // This is the PREFERRED recovery (works pre- AND post-auth, no chip reboot);
-// recovery_reboot_task (core0) defers to it via g_runtime_recovery_engaged and only
+// RebootRecovery::service (core0, see recovery.hpp) defers to it via RecoveryState and only
 // watchdog-reboots if this gives up. Custom board only -- FEATHER has no hub.
 #if ORB_BOARD_ID == ORB_BOARD_ID_CUSTOM_REV_0_1
 // "Wedged" is detected two ways (measured on hardware):
@@ -406,7 +404,7 @@ static void host_recovery_task(void) {
         }
     }
 
-    g_runtime_recovery_engaged.store(recovering, kRlx);  // gate the core0 watchdog-reboot path
+    orb::app::system().recovery_state().set_engaged(recovering);  // gate the core0 watchdog-reboot path
 }
 #else
 static inline void host_recovery_task(void) {}  // no hub / no RESET# pin on this board
@@ -463,66 +461,6 @@ void usb_host_task(void *param) {
     }
 }
 
-// Bounded auto-reboot warm-reset recovery, gated on authentication. A controller
-// frozen across a warm reset can mount but stay a "zombie" -- enumerated yet silent
-// (no heartbeat, LED off). Recovery is probabilistic, so we watchdog-reboot and retry
-// until it comes back live (lands a functional controller within a reboot or two).
-//
-// The retry runs ONLY before auth: a controller is required to establish auth (and to
-// re-establish it after an Xbox-initiated reset), so a zombie -- or a controller lost
-// part-way through auth -- should be recovered. Once authenticated the controller is
-// optional (the user may unplug it freely, drum input comes over serial), so we disarm
-// and never reboot again. If nothing ever mounts there's no controller to recover, so
-// we don't reboot then either. The attempt count rides through our watchdog reboots
-// (scratch[7]) but resets on a fresh power-on / physical reset, so we never loop forever.
-inline constexpr uint32_t kRecovScratch = 7u;    // scratch[4..6] are used by the SDK/bootrom watchdog path; [7] is free with pc=0 reboots
-inline constexpr uint32_t kRecovMagic = 0x5A5A0000u;
-inline constexpr uint32_t kRecovMax = 4u;
-inline constexpr uint32_t kRecovSilentMs = 3000u; // a mounted-but-silent controller this long is a zombie
-static uint32_t g_recov_count = 0;
-
-static void recovery_reboot_task(void) {
-    static bool disarmed = false;
-    static uint32_t silent_since_ms = 0;  // 0 = not currently tracking a silence period
-    if (disarmed) return;
-
-    // Prefer the non-reboot runtime recovery: while core1 is actively pulsing the hub
-    // RESET# to bring a lost controller back, hold off (and reset our debounce so the
-    // reboot timer starts fresh once it stands down). Only fall back to a watchdog
-    // reboot if that runtime recovery exhausts its attempts.
-    if (g_runtime_recovery_engaged.load(kRlx)) { silent_since_ms = 0; return; }
-
-    if (orb::service::adapter().state() >= adapter_state_t::STATE_RUNNING) {  // authenticated -> controller now optional
-        disarmed = true;
-        watchdog_hw->scratch[kRecovScratch] = 0;  // clear so the next reset starts fresh
-        if (g_recov_count) LOG_WARN(CAT_RECOV, "RECOVERY: authenticated after %lu reboot(s)",
-                                    (unsigned long)g_recov_count);
-        return;
-    }
-    if (orb::service::adapter().alive()) { silent_since_ms = 0; return; }  // live -> healthy, nothing to do
-    if (!orb::service::adapter().seen())  { silent_since_ms = 0; return; }  // none present -> nothing to recover
-
-    // A controller mounted but isn't sending a heartbeat (zombie, or lost before auth).
-    // Debounce a brief blip (re-enumeration) before acting.
-    uint32_t now = board_millis();
-    if (silent_since_ms == 0) silent_since_ms = now ? now : 1u;
-    if ((uint32_t)(now - silent_since_ms) < kRecovSilentMs) return;
-
-    if (g_recov_count >= kRecovMax) {  // a zombie that won't thaw across retries
-        disarmed = true;
-        watchdog_hw->scratch[kRecovScratch] = 0;
-        LOG_ERR(CAT_RECOV, "RECOVERY: controller stayed silent after %u reboots; replug needed", (unsigned)kRecovMax);
-        return;
-    }
-    // Probabilistic: reboot and try again -- a later attempt usually lands a live one.
-    watchdog_hw->scratch[kRecovScratch] = kRecovMagic | (g_recov_count + 1u);
-    LOG_WARN(CAT_RECOV, "RECOVERY: controller silent pre-auth -> watchdog reboot %lu/%u",
-             (unsigned long)(g_recov_count + 1u), (unsigned)kRecovMax);
-    dlog_drain();  // flush the log before we go
-    watchdog_reboot(0, 0, 0);
-    while (1) tight_loop_contents();
-}
-
 static void init() {
     // 120 MHz (no overclock): with upstream Pico-PIO-USB (post-0.7.2 bus-turnaround
     // / handshake timing fixes), the controller enumerates reliably through the
@@ -563,17 +501,7 @@ static void init() {
                  !!(cr & VREG_AND_CHIP_RESET_CHIP_RESET_HAD_PSM_RESTART_BITS),
                  watchdog_caused_reboot());
 
-        // Recover our auto-reboot attempt count: only trust the scratch register if
-        // *we* triggered this reboot via watchdog. A power-on / physical reset clears
-        // it to 0 so the user always gets a fresh recovery budget.
-        if (watchdog_caused_reboot() &&
-            (watchdog_hw->scratch[kRecovScratch] & 0xFFFF0000u) == kRecovMagic) {
-            g_recov_count = watchdog_hw->scratch[kRecovScratch] & 0xFFFFu;
-        } else {
-            g_recov_count = 0;
-        }
-        watchdog_hw->scratch[kRecovScratch] = 0;
-        LOG_INFO(CAT_RECOV, "RECOVERY: attempt count = %lu", (unsigned long)g_recov_count);
+        orb::app::system().reboot_recovery().restore_count_from_scratch();
     }
 
     // The deferred log's USB-stick mirror (usb_log_write sink) was attached by
@@ -652,7 +580,7 @@ void housekeeping_task(void *param) {
     (void)param;
     while (true) {
         announce_task();
-        recovery_reboot_task();
+        orb::app::system().reboot_recovery().service();
         dlog_drain();
         orb::osal::sleep_for(std::chrono::milliseconds(5));
     }

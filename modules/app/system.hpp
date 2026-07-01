@@ -31,6 +31,7 @@
 #include "midi.h"            // orb::service::SerialMidi
 #include "osal/queue.hpp"    // orb::osal::Queue
 #include "packet_queue.h"    // orb::driver::DeviceTxFifo
+#include "recovery.hpp"      // orb::app::RecoveryState, orb::app::RebootRecovery
 #include "xbox_one_protocol.h"  // XboxPacket
 
 namespace orb::app {
@@ -41,7 +42,8 @@ class System {
         : instruments_(adapter_, tx_fifo_, instr_events_),
           serial_midi_(instruments_),
           drums_(adapter_, midi_note_q_, serial_midi_, tx_fifo_, instruments_),
-          guitars_(tx_fifo_, instruments_) {}
+          guitars_(tx_fifo_, instruments_),
+          reboot_recovery_(adapter_, recovery_state_) {}
 
     System(const System&) = delete;
     System& operator=(const System&) = delete;
@@ -57,6 +59,8 @@ class System {
     orb::service::DrumEngine& drums() { return drums_; }
     orb::service::GuitarHost& guitars() { return guitars_; }
     orb::board::Actuators& actuators() { return actuators_; }
+    RecoveryState& recovery_state() { return recovery_state_; }
+    RebootRecovery& reboot_recovery() { return reboot_recovery_; }
 
    private:
     // Members (leaves -> services -> app/orchestration). Declaration order IS construction
@@ -66,6 +70,7 @@ class System {
     // must precede drums_ (drums_ stores a reference to it).
     orb::board::Actuators actuators_;  // leaf (no injected deps); GPIO emplaced at runtime
     orb::service::AdapterState adapter_;
+    RecoveryState recovery_state_;  // leaf (no injected deps); cross-core flag, see recovery.hpp
     orb::driver::DeviceTxFifo<XboxPacket, 16> tx_fifo_;
     orb::osal::Queue<orb::service::InstrumentEvent, 8> instr_events_;
     orb::osal::Queue<XboxPacket, 8> host_tx_q_;
@@ -74,6 +79,8 @@ class System {
     orb::service::SerialMidi serial_midi_;
     orb::service::DrumEngine drums_;
     orb::service::GuitarHost guitars_;
+    // Must come after adapter_ and recovery_state_ (stores references to both).
+    RebootRecovery reboot_recovery_;
 };
 
 // The single composition-root instance (defined in system.cpp).
