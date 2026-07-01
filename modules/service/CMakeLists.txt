@@ -18,12 +18,9 @@
 # board-agnostic.
 add_library(orb_service INTERFACE)
 target_sources(orb_service INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}/adapter_ctx.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/drums.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/instrument_manager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/guitar.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/packet_queue.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/app_queues.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/guitar.cpp)
 target_include_directories(orb_service INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(orb_service INTERFACE
     orb_core orb_protocol orb_osal orb_log orb_board)

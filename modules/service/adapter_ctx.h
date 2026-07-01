@@ -90,7 +90,9 @@ class AdapterState {
     std::atomic<bool> reinit_{false};                 // core1 only
 };
 
-// The single cross-core adapter-state instance (defined in adapter_ctx.cpp).
+// The single cross-core adapter-state instance, owned by orb::app::System and reached
+// through this forwarder (defined in the app-layer composition-root bridge,
+// modules/app/system.cpp -- service/ TUs never reach into orb::app directly).
 AdapterState& adapter();
 
 }  // namespace orb::service

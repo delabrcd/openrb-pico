@@ -44,6 +44,7 @@
 // (xboxh_* / xboxd_* / the weak *_cb hooks implemented below), so they keep their own
 // internal extern "C" guard -- include all three normally here.
 #include "packet_queue.h"
+#include "system.hpp"
 #include "xbox_controller_driver.h"
 #include "xbox_device_driver.h"
 
@@ -569,6 +570,10 @@ static void init() {
     // / handshake timing fixes), the controller enumerates reliably through the
     // CH334R repeater at the stock 120 MHz the PIO-USB library is designed for.
     set_sys_clock_khz(120000, true);
+
+    // Composition root: construct orb::app::System (adapter state, device TX fifo,
+    // inter-task queues, InstrumentManager, ...) before any forwarder below can reach it.
+    orb::app::system_init();
 
     // Bring the cross-core adapter context up before anything can touch it
     // (state=STATE_NONE, no controller tracked, flags cleared).
