@@ -1,7 +1,13 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <optional>
 #include <utility>  // std::to_underlying
+
+#include "hal/platform.hpp"       // orb::hal::Uart
+#include "instrument_manager.h"   // orb::service::InstrumentManager
+#include "osal/timer.hpp"         // orb::osal::Timer
 
 enum class midi_type_e : std::uint8_t {
     InvalidType = 0x00,                      ///< For notifying errors
@@ -45,6 +51,62 @@ constexpr midi_type_e midi_type_from_status(std::uint8_t status) noexcept {
     return static_cast<midi_type_e>(status);
 }
 
-// Plain C++ free functions (every consumer is a C++ TU); defined in midi.cpp.
+namespace orb::service {
+
+// Serial (UART) MIDI parser + the drum-disconnect timer, as a modern-C++ service
+// (orb::service::SerialMidi). Same service-rewrite pattern as InstrumentManager/DrumEngine:
+// a C++ object owns the state, thin free functions (declared below, defined in the
+// app-layer bridge -- this file is board-dependent so it stays out of the composition-root
+// TU, see modules/service/CMakeLists.txt) forward into the single instance owned by
+// orb::app::System.
+//
+// uart_ is std::optional so the hal::Uart constructor (uart_init + gpio_set_function) runs
+// only in init(), not at System-construction time relative ordering concerns -- matching the
+// hardware-object lifetime rule the original file-static idiom followed.
+class SerialMidi {
+   public:
+    explicit SerialMidi(orb::service::InstrumentManager& instruments)
+        : instruments_(instruments) {}
+
+    // Bring up the MIDI UART (baud 31250) and arm the disconnect timer. Call once, before
+    // the scheduler starts (matches the old serial_midi_init timing).
+    void init();
+
+    // Parse bytes off the UART into buf; returns 3 when a complete 3-byte message is ready,
+    // 0 otherwise (matches the old serial_midi_read semantics exactly).
+    int read(std::uint8_t* buf);
+
+    // Body of the FreeRTOS disconnect-timer callback (see on_disconnect_timeout_cb in
+    // midi.cpp, which is the real kernel-called C-linkage symbol).
+    void on_disconnect_timeout();
+
+   private:
+    void setup_disconnect_timer();
+    void reset_disconnect_timer();
+
+    orb::service::InstrumentManager& instruments_;
+
+    std::optional<orb::hal::Uart> uart_;
+    orb::osal::Timer disconnect_timer_;
+
+    int count_ = 0;
+    std::uint8_t note_on_message_[3] = {std::to_underlying(midi_type_e::NoteOn), 0, 0};
+    // Written/read on core0 (read(), on_disconnect_timeout()); atomic for consistency with
+    // the project's cross-task-state idiom (the timer-service task is a separate task).
+    std::atomic<bool> drums_connected_{false};
+    bool drums_sending_active_sense_ = false;
+};
+
+}  // namespace orb::service
+
+// Plain C++ free functions (every consumer is a C++ TU); thin forwarders into the single
+// orb::service::SerialMidi instance owned by orb::app::System, defined in the app-layer
+// composition-root bridge (modules/app/system.cpp).
 void serial_midi_init();
 int serial_midi_read(std::uint8_t* buf);
+
+// Bridge forwarder for the FreeRTOS disconnect-timer callback (defined in system.cpp ->
+// forwards to system().serial_midi().on_disconnect_timeout()). Declared here so the
+// extern "C" on_disconnect_timeout_cb in midi.cpp (kernel-called, stays in midi.cpp) can
+// call it.
+void serial_midi_on_disconnect_timeout();

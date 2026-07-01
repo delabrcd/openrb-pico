@@ -1,13 +1,17 @@
 /*
- * Drum engine, as a modern-C++ service (orb::service::DrumEngine). drum_task /
- * drums_read_midi_host are plain C++ free functions its C++ callers (main.cpp) use; the
- * TinyUSB host stack calls the tuh_midi_*_cb seam by C symbol. Same service-rewrite
- * pattern as adapter_ctx.cpp / instrument_manager.cpp: a C++ object owns the input packet
- * + the per-output trigger/aging state, thin shims forward into the single instance.
+ * Drum engine, as a modern-C++ service (orb::service::DrumEngine). The class is declared in
+ * drums.h so orb::app::System can own an instance as a plain member; drum_task /
+ * drums_read_midi_host are plain C++ free functions its C++ callers (main.cpp) use via the
+ * app-layer bridge (system.cpp), and the TinyUSB host stack calls the tuh_midi_*_cb seam by
+ * C symbol (which now delegates through the bridge too). Same service-rewrite pattern as
+ * adapter_ctx.cpp / instrument_manager.cpp: a C++ object owns the input packet + the
+ * per-output trigger/aging state; the private helper tables/functions below stay file-local
+ * (anonymous namespace) exactly as before -- DrumEngine's out-of-line method bodies, being
+ * defined in this same TU, can still see them.
  *
  * The engine consumes parsed MIDI (NoteOn -> a pad/cymbal lane; ControlChange -> the
  * gated hi-hat pedal state machine) from two sources -- the USB-host note queue
- * (produced on core1 by drums_read_midi_host) and the core0 serial-MIDI parser -- and
+ * (produced on core1 by read_midi_host) and the core0 serial-MIDI parser -- and
  * publishes an Xbox drum input packet, deduped per lane, with TRIGGER_HOLD_MS auto-clear
  * and an ADAPTER_OUT_INTERVAL emit rate. Behaviour is preserved byte-for-byte vs the
  * prior drums implementation; the MIDI_MAP switch is replaced by a constexpr note->output table
@@ -17,11 +21,11 @@
  * (inc/hihat_config.h, see docs/features/hihat-mode.md). The DEFAULT build (mode 0)
  * compiles all of it out and is byte-identical to the pure note-relay firmware.
  *
- * Threading: input_pkt_ is now written on core0 ONLY (drum_task: lane bits + init_packet +
+ * Threading: input_pkt_ is written on core0 ONLY (tick: lane bits + init_packet +
  * the fifo write). The tuh_midi mount/umount callbacks run on core1 but only post a hot-plug
- * event via connect/disconnect_instrument -- they no longer build into input_pkt_ (the
- * instrument owner task owns its own scratch), so the previous cross-core tearing hazard on
- * this 64-byte packet is gone. read_midi_host (core1) likewise only feeds the midi_note
+ * event via instruments_.post_connect/post_disconnect -- they no longer build into input_pkt_
+ * (the instrument owner task owns its own scratch), so the previous cross-core tearing hazard
+ * on this 64-byte packet is gone. read_midi_host (core1) likewise only feeds the midi_notes_
  * queue and never touches input_pkt_.
  */
 #include "core/section.hpp"
@@ -75,6 +79,10 @@ enum class Output : std::uint8_t {
 constexpr std::size_t idx(Output o) { return std::to_underlying(o); }
 
 constexpr std::size_t kNumOut = idx(Output::NUM_OUT);
+
+// DrumEngine::kNumOut (drums.h) mirrors this count to size midi_output_states_ without
+// exposing this file-local Output enum through the header -- keep them in sync.
+static_assert(kNumOut == DrumEngine::kNumOut, "DrumEngine::kNumOut must mirror Output::NUM_OUT");
 
 // Every real lane, in order -- for the range-for aging sweep (static_cast<int> of each
 // equals its array index, matching the original "%d" log).
@@ -149,11 +157,11 @@ bool is_hihat_note(std::uint8_t note) {
 #endif
 
 // Initial drum input packet. Built as a constant expression so the engine instance is
-// constant-initialised (constinit -> no global constructor), reproducing the old static
-// designated-initializer exactly: player DRUMS, CMD_INPUT frame, unknown = 0x01. The
-// omitted members (the wla_header button bitfields + the trailing host-side bookkeeping)
-// are intentionally value-initialised to 0, exactly as the original C aggregate left them
-// -- silence the field-by-field warning for this one deliberate partial initializer.
+// constant-initialised, reproducing the old static designated-initializer exactly: player
+// DRUMS, CMD_INPUT frame, unknown = 0x01. The omitted members (the wla_header button
+// bitfields + the trailing host-side bookkeeping) are intentionally value-initialised to 0,
+// exactly as the original C aggregate left them -- silence the field-by-field warning for
+// this one deliberate partial initializer.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 constexpr xbox_packet_t kInitialDrumPacket = {
@@ -173,185 +181,172 @@ constexpr xbox_packet_t kInitialDrumPacket = {
 };
 #pragma GCC diagnostic pop
 
-class DrumEngine {
-   public:
-    // --- core0: drum_task body --------------------------------------------------------
-    void ORB_FAST(tick)() {
-        if (orb::service::adapter().state() != adapter_state_t::STATE_RUNNING) return;
+}  // namespace
 
-        static std::uint8_t pending_msg[48];
-        static midi_type_e type;
-        static std::uint32_t current_time;
+DrumEngine::DrumEngine(orb::service::AdapterState& adapter,
+                       orb::osal::Queue<midi_note_t, 32>& midi_notes,
+                       orb::service::SerialMidi& serial_midi,
+                       orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+                       orb::service::InstrumentManager& instruments)
+    : adapter_(adapter),
+      midi_notes_(midi_notes),
+      serial_midi_(serial_midi),
+      txfifo_(txfifo),
+      instruments_(instruments),
+      input_pkt_(kInitialDrumPacket) {}
 
-        midi_note_t n;
-        while (midi_note_recv(&n)) {
-            type = midi_type_from_status(n.data[0]);
-            if (type == midi_type_e::NoteOn) note_on(n.data[1], n.data[2]);
+// --- core0: drum_task body -----------------------------------------------------------
+void ORB_FAST(DrumEngine::tick)() {
+    if (adapter_.state() != adapter_state_t::STATE_RUNNING) return;
+
+    static std::uint8_t pending_msg[48];
+    static midi_type_e type;
+    static std::uint32_t current_time;
+
+    midi_note_t n;
+    while (midi_notes_.recv(n)) {
+        type = midi_type_from_status(n.data[0]);
+        if (type == midi_type_e::NoteOn) note_on(n.data[1], n.data[2]);
 #if ORB_HIHAT_MODE >= 1
-            else if (type == midi_type_e::ControlChange)
-                control_change(n.data[1], n.data[2]);
+        else if (type == midi_type_e::ControlChange)
+            control_change(n.data[1], n.data[2]);
 #endif
-        }
+    }
 
-        while (serial_midi_read(pending_msg)) {
-            type = midi_type_from_status(pending_msg[0]);
-            if (type == midi_type_e::NoteOn) note_on(pending_msg[1], pending_msg[2]);
+    while (serial_midi_.read(pending_msg)) {
+        type = midi_type_from_status(pending_msg[0]);
+        if (type == midi_type_e::NoteOn) note_on(pending_msg[1], pending_msg[2]);
 #if ORB_HIHAT_MODE >= 1
-            else if (type == midi_type_e::ControlChange)
-                control_change(pending_msg[1], pending_msg[2]);
+        else if (type == midi_type_e::ControlChange)
+            control_change(pending_msg[1], pending_msg[2]);
 #endif
-        }
+    }
 
-        current_time = orb::hal::Clock{}.now_us() / 1000u;
-        for (Output out : kAllOutputs) {
-            output_state_t& st = midi_output_states_[idx(out)];
-            if (!st.triggered) continue;
+    current_time = orb::hal::Clock{}.now_us() / 1000u;
+    for (Output out : kAllOutputs) {
+        output_state_t& st = midi_output_states_[idx(out)];
+        if (!st.triggered) continue;
 
-            std::uint32_t time_since_trigger = current_time - st.triggered_at;
-            if (time_since_trigger > trigger_hold_ms) {
-                LOG_DBG(CAT_DRUM, "NOTE OFF: %d", std::to_underlying(out));
-                update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input);
-                st.triggered = false;
-                changed_ = true;
-            }
-        }
-
-        if (changed_ && current_time - input_pkt_.triggered_time > adapter_out_interval) {
-            init_packet(&input_pkt_, current_time, sizeof(xb_one_drum_input_pkt_t));
-            xbox_fifo_write(&input_pkt_);
-            changed_ = false;
+        std::uint32_t time_since_trigger = current_time - st.triggered_at;
+        if (time_since_trigger > trigger_hold_ms) {
+            LOG_DBG(CAT_DRUM, "NOTE OFF: %d", std::to_underlying(out));
+            update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input);
+            st.triggered = false;
+            changed_ = true;
         }
     }
 
-    // --- core1: drain the USB-host MIDI FIFO ------------------------------------------
-    // Same core as on_midi_mount (which sets midi_dev_addr_). Drains regardless of adapter
-    // state so the FIFO can't overflow; hands each complete message to core0 via the queue.
-    void ORB_FAST(read_midi_host)() {
-        std::uint8_t cable_num;
-        std::uint8_t msg[48];
-        while (tuh_midi_stream_read(midi_dev_addr_, &cable_num, msg, sizeof(msg)) != 0) {
-            midi_note_t note{{msg[0], msg[1], msg[2]}};
-            midi_note_send(&note);
-        }
+    if (changed_ && current_time - input_pkt_.triggered_time > adapter_out_interval) {
+        init_packet(&input_pkt_, current_time, sizeof(xb_one_drum_input_pkt_t));
+        txfifo_.write(input_pkt_);
+        changed_ = false;
     }
+}
 
-    // --- core1: TinyUSB host MIDI mount/umount ----------------------------------------
-    void on_midi_mount(std::uint8_t dev_addr, std::uint8_t in_ep, std::uint8_t out_ep,
-                       std::uint8_t num_cables_rx, std::uint16_t num_cables_tx) {
-        LOG_INFO(CAT_DRUM,
-                 "MIDI device address = %u, IN endpoint %u has %u cables, OUT endpoint %u has %u "
-                 "cables",
-                 dev_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
-
-        if (midi_dev_addr_ == 0) {
-            // then no MIDI device is currently connected
-            midi_dev_addr_ = dev_addr;
-            connect_instrument(DRUMS);  // posts an event; owner task (core0) does the notify
-        } else {
-            LOG_WARN(CAT_DRUM,
-                     "A different USB MIDI Device is already connected. Only one device at a time "
-                     "is supported in this program; device is disabled");
-        }
+// --- core1: drain the USB-host MIDI FIFO ------------------------------------------
+// Same core as on_midi_mount (which sets midi_dev_addr_). Drains regardless of adapter
+// state so the FIFO can't overflow; hands each complete message to core0 via the queue.
+void ORB_FAST(DrumEngine::read_midi_host)() {
+    std::uint8_t cable_num;
+    std::uint8_t msg[48];
+    while (tuh_midi_stream_read(midi_dev_addr_, &cable_num, msg, sizeof(msg)) != 0) {
+        midi_note_t note{{msg[0], msg[1], msg[2]}};
+        midi_notes_.send(note);
     }
+}
 
-    void on_midi_umount(std::uint8_t dev_addr, std::uint8_t instance) {
-        if (dev_addr == midi_dev_addr_) {
-            midi_dev_addr_ = 0;
-            LOG_INFO(CAT_DRUM, "MIDI device address = %d, instance = %d is unmounted", dev_addr,
-                     instance);
-            disconnect_instrument(DRUMS);  // non-blocking on core1's umount path
-        } else {
-            LOG_INFO(CAT_DRUM, "Unused MIDI device address = %d, instance = %d is unmounted",
-                     dev_addr, instance);
-        }
+// --- core1: TinyUSB host MIDI mount/umount ----------------------------------------
+void DrumEngine::on_midi_mount(std::uint8_t dev_addr, std::uint8_t in_ep, std::uint8_t out_ep,
+                               std::uint8_t num_cables_rx, std::uint16_t num_cables_tx) {
+    LOG_INFO(CAT_DRUM,
+             "MIDI device address = %u, IN endpoint %u has %u cables, OUT endpoint %u has %u "
+             "cables",
+             dev_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
+
+    if (midi_dev_addr_ == 0) {
+        // then no MIDI device is currently connected
+        midi_dev_addr_ = dev_addr;
+        instruments_.post_connect(DRUMS);  // posts an event; owner task (core0) does the notify
+    } else {
+        LOG_WARN(CAT_DRUM,
+                 "A different USB MIDI Device is already connected. Only one device at a time "
+                 "is supported in this program; device is disabled");
     }
+}
 
-   private:
-    struct output_state_t {
-        std::uint32_t triggered_at;
-        bool triggered;
-    };
+void DrumEngine::on_midi_umount(std::uint8_t dev_addr, std::uint8_t instance) {
+    if (dev_addr == midi_dev_addr_) {
+        midi_dev_addr_ = 0;
+        LOG_INFO(CAT_DRUM, "MIDI device address = %d, instance = %d is unmounted", dev_addr,
+                 instance);
+        instruments_.post_disconnect(DRUMS);  // non-blocking on core1's umount path
+    } else {
+        LOG_INFO(CAT_DRUM, "Unused MIDI device address = %d, instance = %d is unmounted",
+                 dev_addr, instance);
+    }
+}
 
-    void note_on(std::uint8_t note, std::uint8_t velocity) {
-        if (velocity <= velocity_thresh) return;
+void DrumEngine::note_on(std::uint8_t note, std::uint8_t velocity) {
+    if (velocity <= velocity_thresh) return;
 
-        Output out = get_output_for_note(note);
+    Output out = get_output_for_note(note);
 #if ORB_HIHAT_MODE >= 2
-        // CC-keyed override: for a hi-hat strike, ignore the note's table mapping and
-        // emit open/closed from the tracked pedal state (closed->yellow, open->blue).
-        if (is_hihat_note(note)) out = hh_open_ ? Output::OUT_CYM_BLUE : Output::OUT_CYM_YELLOW;
+    // CC-keyed override: for a hi-hat strike, ignore the note's table mapping and
+    // emit open/closed from the tracked pedal state (closed->yellow, open->blue).
+    if (is_hihat_note(note)) out = hh_open_ ? Output::OUT_CYM_BLUE : Output::OUT_CYM_YELLOW;
 #endif
-        if (out == Output::NO_OUT) return;
+    if (out == Output::NO_OUT) return;
 
-        if (midi_output_states_[idx(out)].triggered) return;
+    if (midi_output_states_[idx(out)].triggered) return;
 
-        update_drum_state_with_midi_input(out, 1, &input_pkt_.drum_input);
-        changed_ = true;
+    update_drum_state_with_midi_input(out, 1, &input_pkt_.drum_input);
+    changed_ = true;
 
-        LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", std::to_underlying(out), velocity);
+    LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", std::to_underlying(out), velocity);
 
-        midi_output_states_[idx(out)].triggered = true;
-        midi_output_states_[idx(out)].triggered_at = orb::hal::Clock{}.now_us() / 1000u;
-    }
+    midi_output_states_[idx(out)].triggered = true;
+    midi_output_states_[idx(out)].triggered_at = orb::hal::Clock{}.now_us() / 1000u;
+}
 
 #if ORB_HIHAT_MODE >= 1
-    // Consumes a ControlChange. At mode 1 this only logs the CC for discovery (so the
-    // owner can watch the UART and learn which CC# their kit sends for the hi-hat pedal
-    // and its polarity). At mode >= 2 it also drives the pedal-openness state machine.
-    void control_change(std::uint8_t controller, std::uint8_t value) {
+// Consumes a ControlChange. At mode 1 this only logs the CC for discovery (so the
+// owner can watch the UART and learn which CC# their kit sends for the hi-hat pedal
+// and its polarity). At mode >= 2 it also drives the pedal-openness state machine.
+void DrumEngine::control_change(std::uint8_t controller, std::uint8_t value) {
 #if ORB_HIHAT_MODE >= 2
-        if (controller == ORB_HIHAT_CC) {
-            // "raw closeness" rises with the configured-closed direction.
-            std::uint8_t v = ORB_HIHAT_INVERT ? static_cast<std::uint8_t>(127 - value) : value;
-            if (hh_open_) {
-                if (v >= ORB_HIHAT_THRESHOLD + ORB_HIHAT_HYST) hh_open_ = false;  // -> closed
-            } else {
-                if (v <= ORB_HIHAT_THRESHOLD - ORB_HIHAT_HYST) hh_open_ = true;  // -> open
-            }
+    if (controller == ORB_HIHAT_CC) {
+        // "raw closeness" rises with the configured-closed direction.
+        std::uint8_t v = ORB_HIHAT_INVERT ? static_cast<std::uint8_t>(127 - value) : value;
+        if (hh_open_) {
+            if (v >= ORB_HIHAT_THRESHOLD + ORB_HIHAT_HYST) hh_open_ = false;  // -> closed
+        } else {
+            if (v <= ORB_HIHAT_THRESHOLD - ORB_HIHAT_HYST) hh_open_ = true;  // -> open
         }
+    }
 #endif
 #if ORB_HIHAT_MODE == 1
-        LOG_INFO(CAT_DRUM, "CC %u = %u", controller, value);  // discovery: visible by default
+    LOG_INFO(CAT_DRUM, "CC %u = %u", controller, value);  // discovery: visible by default
 #else
-        LOG_TRC(CAT_DRUM, "CC %u = %u", controller, value);  // mode 2: off at the default floor
+    LOG_TRC(CAT_DRUM, "CC %u = %u", controller, value);  // mode 2: off at the default floor
 #endif
-    }
+}
 #endif
 
-    xbox_packet_t input_pkt_ = kInitialDrumPacket;
-    std::uint8_t midi_dev_addr_ = 0;
-    std::array<output_state_t, kNumOut> midi_output_states_{};
-    bool changed_ = false;
-#if ORB_HIHAT_MODE >= 2
-    // CC-keyed hi-hat openness, tracked on core0 from the pedal-position CC (see
-    // docs/features/hihat-mode.md). false = closed (pedal down); init closed so a
-    // resting/unknown pedal maps to the default yellow-cymbal lane.
-    bool hh_open_ = false;
-#endif
-};
-
-constinit DrumEngine g_engine;
-
-}  // namespace
 }  // namespace orb::service
 
 // --- boundary ----------------------------------------------------------------------------
-// drum_task / drums_read_midi_host are plain C++ free functions declared in drums.h;
 // tuh_midi_mount_cb / tuh_midi_umount_cb are the TinyUSB host vendor seam (C-linkage via
-// usb_midi_host.h). They stay thin shims that forward into the single DrumEngine, keeping
-// the same __not_in_flash_func placement the originals had (drum_task +
-// drums_read_midi_host in RAM; the mount/umount cbs not).
-
-void ORB_FAST(drum_task)() { orb::service::g_engine.tick(); }
-
-void ORB_FAST(drums_read_midi_host)(void) { orb::service::g_engine.read_midi_host(); }
+// usb_midi_host.h). They stay thin shims here but now delegate through the app-layer bridge
+// forwarders (system.cpp), which reach the single DrumEngine instance owned by
+// orb::app::System -- service/ TUs never include app/ headers, so this file cannot reach
+// System directly.
 
 void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t num_cables_rx,
                        uint16_t num_cables_tx) {
-    orb::service::g_engine.on_midi_mount(dev_addr, in_ep, out_ep, num_cables_rx, num_cables_tx);
+    drums_on_midi_mount(dev_addr, in_ep, out_ep, num_cables_rx, num_cables_tx);
 }
 
 // Invoked when device with hid interface is un-mounted
 void tuh_midi_umount_cb(uint8_t dev_addr, uint8_t instance) {
-    orb::service::g_engine.on_midi_umount(dev_addr, instance);
+    drums_on_midi_umount(dev_addr, instance);
 }

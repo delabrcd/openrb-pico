@@ -11,6 +11,9 @@
 #include "system.hpp"
 
 #include <optional>
+#include <span>
+
+#include "core/section.hpp"  // ORB_FAST -- preserved on the drum/serial-midi hot entry points
 
 namespace orb::app {
 namespace {
@@ -70,3 +73,39 @@ void disconnect_instrument(instruments_e instrument) {
 void instrument_manager_init() { orb::app::system().instruments().init_queue(); }
 
 void instrument_manager_service() { orb::app::system().instruments().service_once(); }
+
+// --- midi.h forwarders -------------------------------------------------------------------
+void serial_midi_init() { orb::app::system().serial_midi().init(); }
+int ORB_FAST(serial_midi_read)(std::uint8_t *buf) {
+    return orb::app::system().serial_midi().read(buf);
+}
+void serial_midi_on_disconnect_timeout() {
+    orb::app::system().serial_midi().on_disconnect_timeout();
+}
+
+// --- drums.h forwarders ------------------------------------------------------------------
+void ORB_FAST(drum_task)() { orb::app::system().drums().tick(); }
+
+void ORB_FAST(drums_read_midi_host)(void) { orb::app::system().drums().read_midi_host(); }
+
+void drums_on_midi_mount(std::uint8_t dev_addr, std::uint8_t in_ep, std::uint8_t out_ep,
+                         std::uint8_t num_cables_rx, std::uint16_t num_cables_tx) {
+    orb::app::system().drums().on_midi_mount(dev_addr, in_ep, out_ep, num_cables_rx,
+                                             num_cables_tx);
+}
+
+void drums_on_midi_umount(std::uint8_t dev_addr, std::uint8_t instance) {
+    orb::app::system().drums().on_midi_umount(dev_addr, instance);
+}
+
+// --- guitar.h forwarders -----------------------------------------------------------------
+void guitar_on_hid_mount(std::uint8_t dev_addr, std::uint8_t instance) {
+    orb::app::system().guitars().mount(dev_addr, instance);
+}
+
+void guitar_on_hid_umount(std::uint8_t dev_addr) { orb::app::system().guitars().umount(dev_addr); }
+
+void guitar_on_hid_report(std::uint8_t dev_addr, std::uint8_t instance,
+                          std::span<const std::uint8_t> report) {
+    orb::app::system().guitars().report_received(dev_addr, instance, report);
+}

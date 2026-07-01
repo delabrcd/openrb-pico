@@ -12,8 +12,11 @@
  * P1 (DI re-architecture): the leaf service objects (AdapterState, the device TX fifo, the
  * inter-task queues, InstrumentManager) are now owned here and reached, by every existing
  * caller, through the free-function forwarders defined in system.cpp (the composition-root
- * bridge TU -- the only place besides main.cpp allowed to include this header). Further
- * modules land in P2+; at that point every remaining anonymous-namespace singleton and
+ * bridge TU -- the only place besides main.cpp allowed to include this header).
+ *
+ * P2: the three feature services -- SerialMidi (serial-MIDI parser), DrumEngine (drums), and
+ * GuitarHost (the two guitar slots) -- join the same ownership + forwarder pattern. Further
+ * modules land in P3+; at that point every remaining anonymous-namespace singleton and
  * free-function forwarder is retired. See the plan in docs (rearchitect/di-classes) and
  * AGENTS.md.
  */
@@ -21,7 +24,10 @@
 
 #include "adapter_ctx.h"     // orb::service::AdapterState
 #include "app_queues.h"      // midi_note_t
+#include "drums.h"           // orb::service::DrumEngine
+#include "guitar.h"          // orb::service::GuitarHost
 #include "instrument_manager.h"  // orb::service::InstrumentManager, InstrumentEvent
+#include "midi.h"            // orb::service::SerialMidi
 #include "osal/queue.hpp"    // orb::osal::Queue
 #include "packet_queue.h"    // orb::driver::DeviceTxFifo
 #include "xbox_one_protocol.h"  // xbox_packet_t
@@ -30,7 +36,11 @@ namespace orb::app {
 
 class System {
    public:
-    System() : instruments_(adapter_, tx_fifo_, instr_events_) {}
+    System()
+        : instruments_(adapter_, tx_fifo_, instr_events_),
+          serial_midi_(instruments_),
+          drums_(adapter_, midi_note_q_, serial_midi_, tx_fifo_, instruments_),
+          guitars_(tx_fifo_, instruments_) {}
 
     System(const System&) = delete;
     System& operator=(const System&) = delete;
@@ -42,17 +52,25 @@ class System {
     orb::osal::Queue<xbox_packet_t, 8>& host_tx() { return host_tx_q_; }
     orb::osal::Queue<midi_note_t, 32>& midi_notes() { return midi_note_q_; }
     orb::service::InstrumentManager& instruments() { return instruments_; }
+    orb::service::SerialMidi& serial_midi() { return serial_midi_; }
+    orb::service::DrumEngine& drums() { return drums_; }
+    orb::service::GuitarHost& guitars() { return guitars_; }
 
    private:
     // Members (leaves -> services -> app/orchestration). Declaration order IS construction
     // order: adapter_/tx_fifo_/instr_events_ must exist before instruments_ is constructed
-    // (it stores references to them).
+    // (it stores references to them); instruments_/tx_fifo_/midi_note_q_ must exist before
+    // serial_midi_/drums_/guitars_ (they store references to those in turn), and serial_midi_
+    // must precede drums_ (drums_ stores a reference to it).
     orb::service::AdapterState adapter_;
     orb::driver::DeviceTxFifo<xbox_packet_t, 16> tx_fifo_;
     orb::osal::Queue<orb::service::InstrumentEvent, 8> instr_events_;
     orb::osal::Queue<xbox_packet_t, 8> host_tx_q_;
     orb::osal::Queue<midi_note_t, 32> midi_note_q_;
     orb::service::InstrumentManager instruments_;
+    orb::service::SerialMidi serial_midi_;
+    orb::service::DrumEngine drums_;
+    orb::service::GuitarHost guitars_;
 };
 
 // The single composition-root instance (defined in system.cpp).
