@@ -36,9 +36,30 @@ class Task {
         return handle_;
     }
 
+    // Typed member-function entry: bind an object + a compile-time member pointer so the
+    // task body is `obj.Method()` with NO void* at the call site. FreeRTOS still receives a
+    // plain TaskFunction_t + void* arg (its mandated C ABI); that void* is confined to the
+    // trampoline below and cast straight back to a typed reference — the one place a raw
+    // pointer is touched. Because Method is a template (compile-time) constant,
+    // (obj.*Method)() lowers to a direct call, identical codegen to a free-function entry,
+    // so the core1 host loop keeps today's timing.
+    template <typename T, void (T::*Method)()>
+    TaskHandle_t start(const char *name, T &obj, UBaseType_t priority, UBaseType_t core_mask) {
+        handle_ = xTaskCreateStaticAffinitySet(&trampoline<T, Method>, name, StackWords, &obj,
+                                               priority, stack_, &tcb_, core_mask);
+        return handle_;
+    }
+
     TaskHandle_t handle() const { return handle_; }
 
    private:
+    // The sole place the FreeRTOS void* task arg is dereferenced: cast back to the typed
+    // object and dispatch to its member. Never propagates outward.
+    template <typename T, void (T::*Method)()>
+    static void trampoline(void *arg) {
+        (static_cast<T *>(arg)->*Method)();
+    }
+
     StackType_t stack_[StackWords];
     StaticTask_t tcb_;
     TaskHandle_t handle_ = nullptr;
