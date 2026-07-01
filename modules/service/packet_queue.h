@@ -5,12 +5,12 @@
 #include <type_traits>
 
 #include "osal/mutex.hpp"  // orb::osal::Mutex / ScopedLock
-#include "xbox_one_protocol.h"  // xbox_packet_t
+#include "xbox_one_protocol.h"  // XboxPacket
 
 namespace orb::driver {
 
 // Device-bound TX fifo for the console-facing endpoint. It replaces the retired
-// CREATE_GENERIC_FIFO(xbox, xbox_packet_t, 16, /*rd_mtx=*/false, /*wr_mtx=*/true)
+// CREATE_GENERIC_FIFO(xbox, XboxPacket, 16, /*rd_mtx=*/false, /*wr_mtx=*/true)
 // instantiation (a tu_fifo + OSAL write-mutex) with the exact same semantics:
 //
 //   - MULTI-WRITER enqueue: both cores feed this fifo (core0 device-RX handlers +
@@ -117,10 +117,10 @@ constexpr uint32_t kXboxFifoDepth = 16;
 // orb::app::System (definitions live in the app-layer bridge TU, modules/app/system.cpp --
 // service/ TUs never reach into orb::app directly).
 void xbox_fifo_init(void);
-uint32_t xbox_fifo_read(xbox_packet_t *buffer);   // 1 if read, 0 if empty (single drainer)
-uint32_t xbox_fifo_peek(xbox_packet_t *buffer);   // 1 if available, 0 if empty
+uint32_t xbox_fifo_read(XboxPacket *buffer);   // 1 if read, 0 if empty (single drainer)
+uint32_t xbox_fifo_peek(XboxPacket *buffer);   // 1 if available, 0 if empty
 void xbox_fifo_advance(void);                     // drop the head-of-line item
-uint32_t xbox_fifo_write(const xbox_packet_t *buffer);  // 1 if enqueued, 0 if full (multi-writer)
+uint32_t xbox_fifo_write(const XboxPacket *buffer);  // 1 if enqueued, 0 if full (multi-writer)
 uint32_t xbox_fifo_count(void);
 bool xbox_fifo_empty(void);
 bool xbox_fifo_full(void);

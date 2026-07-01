@@ -56,7 +56,7 @@ bool is_supported_guitar(std::uint16_t vid, std::uint16_t pid) {
 
 }  // namespace
 
-Guitar::Guitar(instruments_e player, orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+Guitar::Guitar(instruments_e player, orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
                orb::service::InstrumentManager& instruments)
     : txfifo_(txfifo), instruments_(instruments), player_(player) {}
 
@@ -79,7 +79,7 @@ void Guitar::on_report(std::span<const std::uint8_t> report) {
 
 namespace orb::service {
 
-GuitarHost::GuitarHost(orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+GuitarHost::GuitarHost(orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
                        orb::service::InstrumentManager& instruments)
     : guitars_{orb::driver::Guitar{GUITAR_ONE, txfifo, instruments},
                orb::driver::Guitar{GUITAR_TWO, txfifo, instruments}} {}

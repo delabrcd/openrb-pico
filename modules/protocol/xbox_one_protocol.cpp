@@ -1,7 +1,7 @@
 /*
  * GIP (Xbox One) packet construction / parsing for the emulated wireless legacy adapter,
  * as modern C++. The public functions are plain C++ free functions (every consumer is a
- * C++ TU); the wire structs (frame_t, xbox_packet_t, the input packets) stay the unchanged
+ * C++ TU); the wire structs (frame_t, XboxPacket, the input packets) stay the unchanged
  * packed/standard-layout aggregates declared in the header.
  *
  * CRITICAL: every emitted/parsed byte is identical to the original C -- this builds the
@@ -63,29 +63,29 @@ constexpr std::uint8_t make_colored_state(const hid_input_report_t &r) {
 
 std::uint8_t get_sequence() { return g_sequence++; }
 
-std::uint8_t xboxp_get_size(const xbox_packet_t *packet) {
+std::uint8_t xboxp_get_size(const XboxPacket *packet) {
     if (!packet) return 0;
     return packet->length;
 }
 
-void init_packet(xbox_packet_t *pkt, orb::hal::Clock::time_point time, std::uint8_t length) {
-    pkt->frame.sequence = get_sequence();
+void init_packet(XboxPacket *pkt, orb::hal::Clock::time_point time, std::uint8_t length) {
+    pkt->frame().sequence = get_sequence();
     pkt->triggered_time = time.time_since_epoch();
     pkt->handled = 0;
     pkt->length = length;
 }
 
-void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t *wla_output,
+void fill_guitar_input_from_hid_report(const std::uint8_t *report, XboxPacket *wla_output,
                                        std::uint8_t player_id) {
     init_packet(wla_output, orb::hal::Clock{}.now(), sizeof(xb_one_guitar_input_pkt_t));
 
-    wla_output->frame.command = frame_command_e::CMD_INPUT;
-    wla_output->frame.device_id = 0;
-    wla_output->frame.type = frame_type_e::TYPE_COMMAND;
-    wla_output->frame.length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
-    wla_output->wla_header.playerId = player_id;
+    wla_output->frame().command = frame_command_e::CMD_INPUT;
+    wla_output->frame().device_id = 0;
+    wla_output->frame().type = frame_type_e::TYPE_COMMAND;
+    wla_output->frame().length = sizeof(xb_one_guitar_input_pkt_t) - sizeof(frame_t);
+    wla_output->wla_header().playerId = player_id;
 
-    xb_one_guitar_input_pkt_t *guitar_pkt = &wla_output->guitar_input;
+    xb_one_guitar_input_pkt_t *guitar_pkt = &wla_output->guitar_input();
 
     // Reconstruct the typed HID report from the raw bytes via a byte-wise copy -- avoids the
     // strict-aliasing UB of the original `(const hid_input_report_t *)report` cast.
@@ -109,35 +109,35 @@ void fill_guitar_input_from_hid_report(const std::uint8_t *report, xbox_packet_t
     guitar_pkt->wla_header.dpadState1 = guitar_pkt->dpadState2;
 }
 
-void fill_drum_input_from_controller(const xbox_packet_t *controller_input,
-                                     xbox_packet_t *wla_output, std::uint8_t player_id) {
-    std::ranges::fill(std::span{wla_output->buffer}, std::uint8_t{0});
+void fill_drum_input_from_controller(const XboxPacket *controller_input,
+                                     XboxPacket *wla_output, std::uint8_t player_id) {
+    std::ranges::fill(wla_output->wire(), std::uint8_t{0});
 
     wla_output->handled = 0;
     wla_output->triggered_time = orb::hal::Clock::duration{};
 
     wla_output->length = sizeof(xb_one_drum_input_pkt_t);
-    wla_output->frame.command = controller_input->frame.command;
-    wla_output->frame.device_id = controller_input->frame.device_id;
-    wla_output->frame.type = static_cast<frame_type_e>(controller_input->frame.device_id);
-    wla_output->frame.sequence = get_sequence();
-    wla_output->frame.length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t);
+    wla_output->frame().command = controller_input->frame().command;
+    wla_output->frame().device_id = controller_input->frame().device_id;
+    wla_output->frame().type = static_cast<frame_type_e>(controller_input->frame().device_id);
+    wla_output->frame().sequence = get_sequence();
+    wla_output->frame().length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t);
 
-    wla_output->wla_header.playerId = player_id;
+    wla_output->wla_header().playerId = player_id;
 
-    wla_output->wla_header.dpadState1 = controller_input->controller_input.buttons.dpadState;
-    wla_output->drum_input.dpadState2 = controller_input->controller_input.buttons.dpadState;
+    wla_output->wla_header().dpadState1 = controller_input->controller_input().buttons.dpadState;
+    wla_output->drum_input().dpadState2 = controller_input->controller_input().buttons.dpadState;
 
-    wla_output->wla_header.coloredButtonState1 =
-            controller_input->controller_input.buttons.coloredButtonState;
-    wla_output->drum_input.coloredButtonState2 =
-            controller_input->controller_input.buttons.coloredButtonState;
+    wla_output->wla_header().coloredButtonState1 =
+            controller_input->controller_input().buttons.coloredButtonState;
+    wla_output->drum_input().coloredButtonState2 =
+            controller_input->controller_input().buttons.coloredButtonState;
 
-    wla_output->wla_header.select = controller_input->controller_input.buttons.select;
-    wla_output->drum_input.select = controller_input->controller_input.buttons.select;
+    wla_output->wla_header().select = controller_input->controller_input().buttons.select;
+    wla_output->drum_input().select = controller_input->controller_input().buttons.select;
 
-    wla_output->wla_header.start = controller_input->controller_input.buttons.start;
-    wla_output->drum_input.start = controller_input->controller_input.buttons.start;
+    wla_output->wla_header().start = controller_input->controller_input().buttons.start;
+    wla_output->drum_input().start = controller_input->controller_input().buttons.start;
 }
 
 #if OPENRB_DEBUG_ENABLED

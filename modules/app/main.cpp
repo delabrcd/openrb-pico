@@ -3,6 +3,7 @@
 #include <hardware/clocks.h>
 #include <host/usbh.h>
 #include <optional>
+#include <algorithm>
 #include <pico/multicore.h>
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
@@ -68,13 +69,13 @@ static std::optional<orb::hal::GpioOut> s_5v_en;       // 5V enable (FEATHER boa
 
 // Device-side scratch packet: built by the core0 device-RX handlers (auth / identify /
 // running / announce) before being copied into the cross-core TX fifo. core0 ONLY.
-static xbox_packet_t out_packet;
+static XboxPacket out_packet;
 
 // Host-side scratch packet for the core1 controller-input path (handle_controller_packet_
 // running). core1 ONLY -- kept separate from out_packet so a core0 device-RX handler building
 // out_packet cannot tear a controller-input packet being built concurrently on core1 (both
 // are full-width rebuilt-then-enqueued; only the fifo copy is mutex-protected, not the build).
-static xbox_packet_t host_out_packet;
+static XboxPacket host_out_packet;
 
 // ---- Runtime (non-reboot) host recovery, core1 ---------------------------------
 // Liveness of the tracked controller, sampled on core1 only (mount_cb /
@@ -131,7 +132,7 @@ void xboxd_on_reset_cb() {
         watchdog_reboot(0, 0, 10);
 }
 
-static inline bool xboxh_send(const xbox_packet_t *buffer) {
+static inline bool xboxh_send(const XboxPacket *buffer) {
     return host_tx_send(buffer);  // drained + sent on core1 by usb_host_task
 }
 
@@ -159,8 +160,8 @@ void xboxh_umount_cb(uint8_t dev_addr, uint8_t instance) {
     }
 }
 
-void handle_controller_packet_running(const xbox_packet_t *data) {
-    switch (data->frame.command) {
+void handle_controller_packet_running(const XboxPacket *data) {
+    switch (data->frame().command) {
         case frame_command_e::CMD_ANNOUNCE:
             // Controller re-attached and is announcing -- it won't stream input until
             // the host re-inits it. Defer to the core1 loop (the init blocks on tx).
@@ -181,13 +182,13 @@ void handle_controller_packet_running(const xbox_packet_t *data) {
     }
 }
 
-void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
+void xboxh_packet_received_cb(uint8_t idx, const XboxPacket *data, const uint8_t ndata) {
     if (idx != orb::service::adapter().controller_idx()) return;
     if (ndata < sizeof(frame_t)) return;
     orb::service::adapter().set_alive(true);  // a real packet arrived -> controller is alive, not a zombie
     g_host_last_rx_us.store(timer_hw->timerawl, kRlx);  // feed the runtime-recovery silence timer (core1)
     g_host_rx_count.store(g_host_rx_count.load(kRlx) + 1u, kRlx);  // tick so recovery can detect a fresh heartbeat
-    LOG_TRC(CAT_WIRE, "IN FROM CONTROLLER: %s", get_command_name(std::to_underlying(data->frame.command)));
+    LOG_TRC(CAT_WIRE, "IN FROM CONTROLLER: %s", get_command_name(std::to_underlying(data->frame().command)));
     switch (orb::service::adapter().state()) {
         case adapter_state_t::STATE_AUTHENTICATING:
             xbox_fifo_write(data);
@@ -202,17 +203,17 @@ void xboxh_packet_received_cb(uint8_t idx, const xbox_packet_t *data, const uint
     }
 }
 
-void xboxh_packet_sent_cb(uint8_t idx, const xbox_packet_t *data, const uint8_t ndata) {
+void xboxh_packet_sent_cb(uint8_t idx, const XboxPacket *data, const uint8_t ndata) {
     (void)idx;
     (void)data;
     (void)ndata;
-    LOG_TRC(CAT_WIRE, "Sent Controller %d bytes (%s)", ndata, get_command_name(std::to_underlying(data->frame.command)));
+    LOG_TRC(CAT_WIRE, "Sent Controller %d bytes (%s)", ndata, get_command_name(std::to_underlying(data->frame().command)));
 }
 
-static void handle_auth(const xbox_packet_t *packet) {
-    if (packet->frame.command == frame_command_e::CMD_AUTHENTICATE &&
-        packet->frame.length == 2 &&
-        packet->buffer[3] == 2 && packet->buffer[4] == 1 && packet->buffer[5] == 0) {
+static void handle_auth(const XboxPacket *packet) {
+    if (packet->frame().command == frame_command_e::CMD_AUTHENTICATE &&
+        packet->frame().length == 2 &&
+        packet->data()[3] == 2 && packet->data()[4] == 1 && packet->data()[5] == 0) {
         set_auth_led(true);
 
         LOG_INFO(CAT_DEV, "AUTHENTICATED!");
@@ -226,9 +227,9 @@ static void handle_auth(const xbox_packet_t *packet) {
     return;
 }
 
-static void handle_identify(const xbox_packet_t *packet) {
+static void handle_identify(const XboxPacket *packet) {
     static uint8_t identify_sequence = 0;
-    switch (packet->frame.command) {
+    switch (packet->frame().command) {
         case frame_command_e::CMD_IDENTIFY:
         case frame_command_e::CMD_ACKNOWLEDGE:
             if (identify_sequence >= identifiers_get_n()) {
@@ -250,8 +251,8 @@ static void handle_identify(const xbox_packet_t *packet) {
     return;
 }
 
-static void handle_init(const xbox_packet_t *packet) {
-    switch (packet->frame.command) {
+static void handle_init(const XboxPacket *packet) {
+    switch (packet->frame().command) {
         case frame_command_e::CMD_IDENTIFY:
             LOG_INFO(CAT_DEV, "Moving to Identify");
             orb::service::adapter().set_state(adapter_state_t::STATE_IDENTIFYING);
@@ -261,10 +262,10 @@ static void handle_init(const xbox_packet_t *packet) {
     }
 }
 
-static void handle_running(const xbox_packet_t *packet) {
-    switch (packet->frame.command) {
+static void handle_running(const XboxPacket *packet) {
+    switch (packet->frame().command) {
         case frame_command_e::CMD_POWER_MODE:
-            if (packet->power.data.data == std::to_underlying(power_mode_e::POWER_OFF)) {
+            if (packet->power().data == std::to_underlying(power_mode_e::POWER_OFF)) {
                 orb::service::adapter().set_state(adapter_state_t::STATE_POWER_OFF);
                 set_auth_led(false);
                 set_usb_host(false);
@@ -277,7 +278,7 @@ static void handle_running(const xbox_packet_t *packet) {
             notify_xbox_of_all_instruments(out_packet);
             break;
         case frame_command_e::CMD_LIST_INSTRUMENT:
-            notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->buffer[4]), out_packet);
+            notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->data()[4]), out_packet);
             break;
         default:
             break;
@@ -285,7 +286,7 @@ static void handle_running(const xbox_packet_t *packet) {
     return;
 }
 
-static void handle_xboxd_packet(const xbox_packet_t *packet) {
+static void handle_xboxd_packet(const XboxPacket *packet) {
     switch (orb::service::adapter().state()) {
         case adapter_state_t::STATE_NONE:
             return;
@@ -303,7 +304,7 @@ static void handle_xboxd_packet(const xbox_packet_t *packet) {
     return;
 }
 
-bool xboxd_packet_received_cb(uint8_t rhport, const xbox_packet_t *buf, uint32_t xferred_bytes) {
+bool xboxd_packet_received_cb(uint8_t rhport, const XboxPacket *buf, uint32_t xferred_bytes) {
     (void)rhport;
     if (xferred_bytes < sizeof(frame_t)) return false;
 
@@ -466,7 +467,7 @@ void usb_host_task(void *param) {
 
         // Drain host-TX packets enqueued by core0 device handlers; submit on core1 (the
         // core that owns the host stack).
-        xbox_packet_t txp;
+        XboxPacket txp;
         while (host_tx_recv(&txp)) {
             uint8_t idx, addr;
             if (orb::service::adapter().controller(&idx, &addr)) {
@@ -648,7 +649,7 @@ static void init() {
     serial_midi_init();
     LOG_INFO(CAT_SYS, "finished initializing serial midi...");
 
-    memset(out_packet.buffer, 0, sizeof(out_packet.buffer));
+    std::ranges::fill(out_packet.wire(), std::uint8_t{0});
 
     orb::service::adapter().set_state(adapter_state_t::STATE_INIT);
     LOG_INFO(CAT_SYS, "finished init, starting main process...");

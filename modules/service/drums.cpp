@@ -158,29 +158,31 @@ bool is_hihat_note(std::uint8_t note) {
 }
 #endif
 
-// Initial drum input packet. Built as a constant expression so the engine instance is
-// constant-initialised, reproducing the old static designated-initializer exactly: player
-// DRUMS, CMD_INPUT frame, unknown = 0x01. The omitted members (the wla_header button
-// bitfields + the trailing host-side bookkeeping) are intentionally value-initialised to 0,
-// exactly as the original C aggregate left them -- silence the field-by-field warning for
-// this one deliberate partial initializer.
+// Initial drum input packet. XboxPacket is no longer an aggregate (it owns its wire bytes
+// privately behind typed-view accessors), so this can't be a designated-initializer constant
+// anymore -- instead, zero the wire bytes (matching the original aggregate's implicit
+// zero-initialisation of every omitted member) and assign just the wla_header sub-object,
+// reproducing the old static initializer exactly: player DRUMS, CMD_INPUT frame,
+// unknown = 0x01, everything else 0.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-constexpr xbox_packet_t kInitialDrumPacket = {
-    .wla_header =
-        {
+XboxPacket make_initial_drum_packet() {
+    XboxPacket pkt{};
+    std::ranges::fill(pkt.wire(), std::uint8_t{0});
+    pkt.wla_header() = xb_one_wireless_legacy_adapter_pkt_t{
             .frame =
-                {
-                    .command = frame_command_e::CMD_INPUT,
-                    .device_id = std::to_underlying(frame_type_e::TYPE_COMMAND),
-                    .type = frame_type_e::TYPE_COMMAND,
-                    .sequence = 0,
-                    .length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t),
-                },
+                    {
+                            .command = frame_command_e::CMD_INPUT,
+                            .device_id = std::to_underlying(frame_type_e::TYPE_COMMAND),
+                            .type = frame_type_e::TYPE_COMMAND,
+                            .sequence = 0,
+                            .length = sizeof(xb_one_drum_input_pkt_t) - sizeof(frame_t),
+                    },
             .playerId = std::to_underlying(instruments_e::DRUMS),
             .unknown = 0x01,
-        },
-};
+    };
+    return pkt;
+}
 #pragma GCC diagnostic pop
 
 }  // namespace
@@ -188,14 +190,14 @@ constexpr xbox_packet_t kInitialDrumPacket = {
 DrumEngine::DrumEngine(orb::service::AdapterState& adapter,
                        orb::osal::Queue<midi_note_t, 32>& midi_notes,
                        orb::service::SerialMidi& serial_midi,
-                       orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+                       orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
                        orb::service::InstrumentManager& instruments)
     : adapter_(adapter),
       midi_notes_(midi_notes),
       serial_midi_(serial_midi),
       txfifo_(txfifo),
       instruments_(instruments),
-      input_pkt_(kInitialDrumPacket) {}
+      input_pkt_(make_initial_drum_packet()) {}
 
 // --- core0: drum_task body -----------------------------------------------------------
 void ORB_FAST(DrumEngine::tick)() {
@@ -229,7 +231,7 @@ void ORB_FAST(DrumEngine::tick)() {
 
         if (now - st.triggered_at > trigger_hold) {
             LOG_DBG(CAT_DRUM, "NOTE OFF: %d", std::to_underlying(out));
-            update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input);
+            update_drum_state_with_midi_input(out, 0, &input_pkt_.drum_input());
             st.triggered = false;
             changed_ = true;
         }
@@ -255,7 +257,7 @@ void DrumEngine::note_on(std::uint8_t note, std::uint8_t velocity) {
 
     if (midi_output_states_[idx(out)].triggered) return;
 
-    update_drum_state_with_midi_input(out, 1, &input_pkt_.drum_input);
+    update_drum_state_with_midi_input(out, 1, &input_pkt_.drum_input());
     changed_ = true;
 
     LOG_DBG(CAT_DRUM, "NOTE ON: %d %d", std::to_underlying(out), velocity);

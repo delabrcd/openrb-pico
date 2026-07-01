@@ -79,7 +79,7 @@ constexpr std::array<instruments_e, kInstrumentCount> kAllInstruments{
 
 }  // namespace
 
-void InstrumentManager::notify_all(xbox_packet_t &scratch) {
+void InstrumentManager::notify_all(XboxPacket &scratch) {
     LOG_DBG(CAT_DEV, "notify_xbox_of_all_instruments");
     for (instruments_e instrument : kAllInstruments) {
         if (!connected_[idx(instrument)].load(kRlx)) continue;
@@ -88,7 +88,7 @@ void InstrumentManager::notify_all(xbox_packet_t &scratch) {
     }
 }
 
-void InstrumentManager::notify_single(instruments_e instrument, xbox_packet_t &scratch) {
+void InstrumentManager::notify_single(instruments_e instrument, XboxPacket &scratch) {
     if (instrument < N_INSTRUMENTS) {
         LOG_DBG(CAT_DEV, "notify_xbox_of_single_instrument: %d - %s",
                 std::to_underlying(instrument), instrument_name(instrument));
@@ -143,11 +143,11 @@ bool InstrumentManager::claim(instruments_e instrument, bool want) {
     return true;
 }
 
-void InstrumentManager::build_packet(xbox_packet_t &pkt, instruments_e instrument, bool connect) {
+void InstrumentManager::build_packet(XboxPacket &pkt, instruments_e instrument, bool connect) {
     const std::span<const std::uint8_t> src =
         connect ? std::span<const std::uint8_t>{instrument_notify[idx(instrument)]}
                 : std::span<const std::uint8_t>{instrument_drop_out[idx(instrument)]};
-    std::ranges::copy(src, std::span<std::uint8_t>{pkt.buffer}.begin());
+    std::ranges::copy(src, pkt.wire().begin());
     init_packet(&pkt, orb::hal::Clock::time_point{}, static_cast<std::uint8_t>(src.size()));
 }
 

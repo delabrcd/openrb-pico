@@ -30,7 +30,7 @@
 #include "midi.h"            // orb::service::SerialMidi
 #include "osal/queue.hpp"    // orb::osal::Queue
 #include "packet_queue.h"    // orb::driver::DeviceTxFifo
-#include "xbox_one_protocol.h"  // xbox_packet_t
+#include "xbox_one_protocol.h"  // XboxPacket
 
 namespace orb::app {
 
@@ -47,9 +47,9 @@ class System {
 
     // Accessors used by main's wiring, the app-layer bridge forwarders, and the seam binds.
     orb::service::AdapterState& adapter() { return adapter_; }
-    orb::driver::DeviceTxFifo<xbox_packet_t, 16>& tx_fifo() { return tx_fifo_; }
+    orb::driver::DeviceTxFifo<XboxPacket, 16>& tx_fifo() { return tx_fifo_; }
     orb::osal::Queue<orb::service::InstrumentEvent, 8>& instr_events() { return instr_events_; }
-    orb::osal::Queue<xbox_packet_t, 8>& host_tx() { return host_tx_q_; }
+    orb::osal::Queue<XboxPacket, 8>& host_tx() { return host_tx_q_; }
     orb::osal::Queue<midi_note_t, 32>& midi_notes() { return midi_note_q_; }
     orb::service::InstrumentManager& instruments() { return instruments_; }
     orb::service::SerialMidi& serial_midi() { return serial_midi_; }
@@ -63,9 +63,9 @@ class System {
     // serial_midi_/drums_/guitars_ (they store references to those in turn), and serial_midi_
     // must precede drums_ (drums_ stores a reference to it).
     orb::service::AdapterState adapter_;
-    orb::driver::DeviceTxFifo<xbox_packet_t, 16> tx_fifo_;
+    orb::driver::DeviceTxFifo<XboxPacket, 16> tx_fifo_;
     orb::osal::Queue<orb::service::InstrumentEvent, 8> instr_events_;
-    orb::osal::Queue<xbox_packet_t, 8> host_tx_q_;
+    orb::osal::Queue<XboxPacket, 8> host_tx_q_;
     orb::osal::Queue<midi_note_t, 32> midi_note_q_;
     orb::service::InstrumentManager instruments_;
     orb::service::SerialMidi serial_midi_;

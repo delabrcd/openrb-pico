@@ -15,7 +15,7 @@
  * / static-init-order concern), and create() does the actual xQueueCreateStatic once
  * the kernel is up enough. Give each instance static storage duration.
  *
- *   static orb::osal::Queue<xbox_packet_t, 8> host_tx;
+ *   static orb::osal::Queue<XboxPacket, 8> host_tx;
  *   host_tx.create();
  *   if (!host_tx.send(pkt)) { ... full ... }   // non-blocking, matches app_queues
  *

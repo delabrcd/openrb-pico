@@ -63,8 +63,8 @@ struct xbox_interface_t {
 
     bool is_powered;
 
-    CFG_TUH_MEM_ALIGN xbox_packet_t epin_buf;
-    CFG_TUH_MEM_ALIGN xbox_packet_t epout_buf;
+    CFG_TUH_MEM_ALIGN XboxPacket epin_buf;
+    CFG_TUH_MEM_ALIGN XboxPacket epout_buf;
 };
 
 CFG_TUH_MEM_SECTION
@@ -176,26 +176,26 @@ bool xboxh_power_off_controller(xbox_interface_t *p_itf) {
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.data = std::to_underlying(power_mode_e::POWER_OFF);
-    out.data.frame.sequence = get_sequence();
+    out.data = std::to_underlying(power_mode_e::POWER_OFF);
+    out.frame.sequence = get_sequence();
 
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.frame.sequence = get_sequence();
+    out.frame.sequence = get_sequence();
 
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.frame.sequence = get_sequence();
+    out.frame.sequence = get_sequence();
 
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.data = std::to_underlying(power_mode_e::POWER_SLEEP);
-    out.data.frame.sequence = get_sequence();
+    out.data = std::to_underlying(power_mode_e::POWER_SLEEP);
+    out.frame.sequence = get_sequence();
 
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, out.buffer, sizeof(out)));
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
     p_itf->is_powered = false;
     return true;
@@ -211,7 +211,7 @@ bool xboxh_power_on_controller(xbox_interface_t *p_itf) {
     if (p_itf->is_powered) return false;
     const power_report_t power_on = make_power_report(0, std::to_underlying(power_mode_e::POWER_ON));
 
-    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, power_on.buffer, sizeof(power_on)));
+    TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &power_on, sizeof(power_on)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
     if ((p_itf->PID == kXboxOnePid4 || p_itf->PID == 0x0b00 || p_itf->PID == kXboxOnePid14)) {
@@ -237,8 +237,8 @@ bool xboxh_reset_controller(xbox_interface_t *p_itf) {
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
 
-    out.data.frame.sequence = get_sequence();
-    out.data.data = 0x00;
+    out.frame.sequence = get_sequence();
+    out.data = 0x00;
 
     TU_ASSERT(xboxh_send_report(p_itf->daddr, 0, &out, sizeof(out)));
     wait_for_tx_complete(p_itf->daddr, p_itf->ep_out);
@@ -275,11 +275,11 @@ bool xboxh_send_report(uint8_t daddr, uint8_t idx, const void *report, uint16_t 
     // claim endpoint
     TU_VERIFY(usbh_edpt_claim(daddr, p_hid->ep_out));
 
-    memcpy(&p_hid->epout_buf.buffer, report, len);
+    memcpy(p_hid->epout_buf.data(), report, len);
 
-    TU_LOG3_MEM(p_hid->epout_buf.buffer, len, 2);
+    TU_LOG3_MEM(p_hid->epout_buf.data(), len, 2);
 
-    if (!usbh_edpt_xfer(daddr, p_hid->ep_out, p_hid->epout_buf.buffer, len)) {
+    if (!usbh_edpt_xfer(daddr, p_hid->ep_out, p_hid->epout_buf.data(), len)) {
         usbh_edpt_release(daddr, p_hid->ep_out);
         return false;
     }
@@ -294,7 +294,7 @@ bool xboxh_receive_report(uint8_t daddr, uint8_t idx) {
     // claim endpoint
     TU_VERIFY(usbh_edpt_claim(daddr, p_controller->ep_in));
 
-    if (!usbh_edpt_xfer(daddr, p_controller->ep_in, p_controller->epin_buf.buffer,
+    if (!usbh_edpt_xfer(daddr, p_controller->ep_in, p_controller->epin_buf.data(),
                         p_controller->epin_size)) {
         usbh_edpt_release(daddr, p_controller->ep_in);
         return false;

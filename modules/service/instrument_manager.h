@@ -59,12 +59,12 @@ struct InstrumentEvent {
 class InstrumentManager {
    public:
     InstrumentManager(orb::service::AdapterState& adapter,
-                       orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+                       orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
                        orb::osal::Queue<InstrumentEvent, 8>& events)
         : adapter_(adapter), txfifo_(txfifo), events_(events) {}
 
-    void notify_all(xbox_packet_t& scratch);
-    void notify_single(instruments_e instrument, xbox_packet_t& scratch);
+    void notify_all(XboxPacket& scratch);
+    void notify_single(instruments_e instrument, XboxPacket& scratch);
 
     // Apply a hot-plug transition. Called ONLY by the owner task (core0), so the flag
     // check-then-set is single-writer and needs no lock. Builds the add/drop packet into
@@ -99,14 +99,14 @@ class InstrumentManager {
     bool claim(instruments_e instrument, bool want);
 
     // Copy an instrument's full wire row into the scratch packet and stamp its length.
-    static void build_packet(xbox_packet_t& pkt, instruments_e instrument, bool connect);
+    static void build_packet(XboxPacket& pkt, instruments_e instrument, bool connect);
 
     orb::service::AdapterState& adapter_;
-    orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo_;
+    orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo_;
     orb::osal::Queue<InstrumentEvent, 8>& events_;
 
     std::array<std::atomic<bool>, kInstrumentCount> connected_{};  // all false -> BSS
-    xbox_packet_t scratch_{};  // owner-task-exclusive add/drop-packet scratch
+    XboxPacket scratch_{};  // owner-task-exclusive add/drop-packet scratch
 };
 
 }  // namespace orb::service
@@ -116,8 +116,8 @@ class InstrumentManager {
 // Re-announce the currently-connected instruments to the console. These only READ the
 // connection state and build into the CALLER's scratch, so they stay callable directly
 // from the core0 device stack (announce / CMD_ANNOUNCE handling).
-void notify_xbox_of_all_instruments(xbox_packet_t& scratch_space);
-void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t& scratch_space);
+void notify_xbox_of_all_instruments(XboxPacket& scratch_space);
+void notify_xbox_of_single_instrument(instruments_e instrument, XboxPacket& scratch_space);
 
 // Driver-facing hot-plug API. connect/disconnect_instrument POST an event to the
 // instrument owner task and return immediately -- they NEVER take a lock or block, so they

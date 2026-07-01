@@ -24,7 +24,7 @@
 #include "orb_log.h"
 
 // identifiers.h (which pulls in xbox_one_protocol.h) and xbox_one_protocol.h are C++
-// headers now -- init_packet, the identifiers_* API and xbox_packet_t are plain C++,
+// headers now -- init_packet, the identifiers_* API and XboxPacket are plain C++,
 // defined in C++ TUs -- so include them normally.
 #include "identifiers.h"
 #include "xbox_one_protocol.h"
@@ -91,12 +91,12 @@ constexpr std::array<std::span<const std::uint8_t>, 7> kIdentifyList{
 
 int identifiers_get_n() { return static_cast<int>(kIdentifyList.size()); }
 
-int identifiers_get_announce(xbox_packet_t *packet) {
+int identifiers_get_announce(XboxPacket *packet) {
     constexpr std::span<const std::uint8_t> announce{wla_announce};
-    std::ranges::copy(announce, std::span<std::uint8_t>{packet->buffer}.begin());
+    std::ranges::copy(announce, packet->wire().begin());
 
     // Randomise the WLA address bytes [5..9] -- preserved byte-for-byte from the original.
-    for (std::uint8_t &b : std::span<std::uint8_t>{packet->buffer}.subspan(5, 5)) {
+    for (std::uint8_t &b : packet->wire().subspan(5, 5)) {
         b = static_cast<std::uint8_t>(std::rand() % UINT8_MAX);
     }
 
@@ -104,12 +104,12 @@ int identifiers_get_announce(xbox_packet_t *packet) {
     return 0;
 }
 
-int identifiers_get(std::uint8_t sequence, xbox_packet_t *packet) {
+int identifiers_get(std::uint8_t sequence, XboxPacket *packet) {
     if (sequence >= identifiers_get_n()) return 1;  // valid indices are 0 .. n-1
     LOG_DBG(CAT_DEV, "IDENTIFY SEQUENCE: %d", sequence);
 
     const std::span<const std::uint8_t> src = kIdentifyList[sequence];
-    std::ranges::copy(src, std::span<std::uint8_t>{packet->buffer}.begin());
+    std::ranges::copy(src, packet->wire().begin());
     init_packet(packet, orb::hal::Clock::time_point{}, static_cast<std::uint8_t>(src.size()));
     return 0;
 }

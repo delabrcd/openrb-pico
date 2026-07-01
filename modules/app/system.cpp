@@ -37,10 +37,10 @@ orb::service::AdapterState& orb::service::adapter() { return orb::app::system().
 
 // --- packet_queue.h forwarders --------------------------------------------------------
 void xbox_fifo_init(void) { orb::app::system().tx_fifo().init(); }
-uint32_t xbox_fifo_read(xbox_packet_t *buffer) { return orb::app::system().tx_fifo().read(*buffer); }
-uint32_t xbox_fifo_peek(xbox_packet_t *buffer) { return orb::app::system().tx_fifo().peek(*buffer); }
+uint32_t xbox_fifo_read(XboxPacket *buffer) { return orb::app::system().tx_fifo().read(*buffer); }
+uint32_t xbox_fifo_peek(XboxPacket *buffer) { return orb::app::system().tx_fifo().peek(*buffer); }
 void xbox_fifo_advance(void) { orb::app::system().tx_fifo().advance(); }
-uint32_t xbox_fifo_write(const xbox_packet_t *buffer) {
+uint32_t xbox_fifo_write(const XboxPacket *buffer) {
     return orb::app::system().tx_fifo().write(*buffer);
 }
 uint32_t xbox_fifo_count(void) { return orb::app::system().tx_fifo().count(); }
@@ -54,15 +54,15 @@ void app_queues_init(void) {
     orb::app::system().midi_notes().create();
 }
 
-bool host_tx_send(const xbox_packet_t *pkt) { return orb::app::system().host_tx().send(*pkt); }
-bool host_tx_recv(xbox_packet_t *pkt) { return orb::app::system().host_tx().recv(*pkt); }
+bool host_tx_send(const XboxPacket *pkt) { return orb::app::system().host_tx().send(*pkt); }
+bool host_tx_recv(XboxPacket *pkt) { return orb::app::system().host_tx().recv(*pkt); }
 
 // --- instrument_manager.h forwarders ----------------------------------------------------
-void notify_xbox_of_all_instruments(xbox_packet_t& scratch_space) {
+void notify_xbox_of_all_instruments(XboxPacket& scratch_space) {
     orb::app::system().instruments().notify_all(scratch_space);
 }
 
-void notify_xbox_of_single_instrument(instruments_e instrument, xbox_packet_t& scratch_space) {
+void notify_xbox_of_single_instrument(instruments_e instrument, XboxPacket& scratch_space) {
     orb::app::system().instruments().notify_single(instrument, scratch_space);
 }
 

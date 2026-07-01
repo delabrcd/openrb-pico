@@ -20,7 +20,7 @@
 #include "midi.h"                // orb::service::SerialMidi
 #include "osal/queue.hpp"        // orb::osal::Queue
 #include "packet_queue.h"        // orb::driver::DeviceTxFifo
-#include "xbox_one_protocol.h"   // xbox_packet_t
+#include "xbox_one_protocol.h"   // XboxPacket
 
 namespace orb::service {
 
@@ -41,7 +41,7 @@ class DrumEngine {
     DrumEngine(orb::service::AdapterState& adapter,
                orb::osal::Queue<midi_note_t, 32>& midi_notes,
                orb::service::SerialMidi& serial_midi,
-               orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+               orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
                orb::service::InstrumentManager& instruments);
 
     // Mirror of the anonymous-namespace Output::NUM_OUT lane count in drums.cpp (kick + 4
@@ -79,10 +79,10 @@ class DrumEngine {
     orb::service::AdapterState& adapter_;
     orb::osal::Queue<midi_note_t, 32>& midi_notes_;
     orb::service::SerialMidi& serial_midi_;
-    orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo_;
+    orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo_;
     orb::service::InstrumentManager& instruments_;
 
-    xbox_packet_t input_pkt_;
+    XboxPacket input_pkt_;
     std::array<output_state_t, kNumOut> midi_output_states_{};
     bool changed_ = false;
 #if ORB_HIHAT_MODE >= 2

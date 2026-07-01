@@ -35,8 +35,8 @@ struct xinputd_interface_t {
     uint8_t ep_in;
     uint8_t ep_out;
 
-    CFG_TUSB_MEM_ALIGN xbox_packet_t epin_buf;
-    CFG_TUSB_MEM_ALIGN xbox_packet_t epout_buf;
+    CFG_TUSB_MEM_ALIGN XboxPacket epin_buf;
+    CFG_TUSB_MEM_ALIGN XboxPacket epout_buf;
 };
 
 CFG_TUSB_MEM_SECTION std::array<xinputd_interface_t, CFG_TUD_XINPUT> _xinputd_itf;
@@ -72,17 +72,17 @@ bool tud_xinput_n_ready(uint8_t itf) {
     return tud_ready() && (ep_in != 0) && !usbd_edpt_busy(TUD_OPT_RHPORT, ep_in);
 }
 
-bool xboxd_send(xbox_packet_t *packet) {
+bool xboxd_send(XboxPacket *packet) {
     if (!_xinputd_itf[0].ep_in) return false;
 
-    LOG_TRC(CAT_WIRE, "sending %s size: %d", get_command_name(std::to_underlying(packet->frame.command)),
+    LOG_TRC(CAT_WIRE, "sending %s size: %d", get_command_name(std::to_underlying(packet->frame().command)),
             packet->length);
 
-    return _xboxd_send(0, packet->buffer, packet->length);
+    return _xboxd_send(0, packet->data(), packet->length);
 }
 
 bool xboxd_send_task() {
-    xbox_packet_t *pkt = &_xinputd_itf[0].epin_buf;
+    XboxPacket *pkt = &_xinputd_itf[0].epin_buf;
     if (pkt->handled) {
         TU_VERIFY(xbox_fifo_read(pkt));
     }
@@ -93,7 +93,7 @@ bool xboxd_send_task() {
     TU_VERIFY(usbd_edpt_claim(0, _xinputd_itf[0].ep_in));
 
     if (!xboxd_send(pkt)) {
-        LOG_ERR(CAT_DEV, "FAILED TO SEND %s", get_command_name(std::to_underlying(pkt->frame.command)));
+        LOG_ERR(CAT_DEV, "FAILED TO SEND %s", get_command_name(std::to_underlying(pkt->frame().command)));
         usbd_edpt_release(0, _xinputd_itf[0].ep_in);
     }
     return true;
@@ -190,8 +190,13 @@ uint16_t xboxd_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint1
         p_desc = tu_desc_next(p_desc);
         desc_ep = reinterpret_cast<tusb_desc_endpoint_t const *>(p_desc);
     }
-    TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.buffer,
-                             sizeof(p_xinput->epout_buf)));
+    // Prime the OUT endpoint: receive one max packet into the 64-byte wire buffer. Length is
+    // the wire capacity (== CFG_TUD_XINPUT_RX_BUFSIZE), NOT sizeof(XboxPacket) -- the latter
+    // includes the host-side bookkeeping tail and, now that the wire buffer no longer sits at
+    // the object's front, would let a >64-byte transfer write past epout_buf. Matches the
+    // re-arm in xboxd_xfer_cb below.
+    TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.data(),
+                             XboxPacket::capacity()));
     return drv_len;
 }
 
@@ -255,18 +260,18 @@ bool xboxd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32
     if (p_xinput == nullptr) return false;
 
     if (ep_addr == p_xinput->ep_out) {
-        LOG_TRC(CAT_WIRE, "IN (%s)", get_command_name(std::to_underlying(p_xinput->epout_buf.frame.command)));
-        LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epout_buf.buffer, xferred_bytes);
+        LOG_TRC(CAT_WIRE, "IN (%s)", get_command_name(std::to_underlying(p_xinput->epout_buf.frame().command)));
+        LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epout_buf.data(), xferred_bytes);
 
         p_xinput->epout_buf.length = xferred_bytes;
         if (xboxd_packet_received_cb)
             xboxd_packet_received_cb(rhport, &p_xinput->epout_buf, xferred_bytes);
-        TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.buffer,
-                                 sizeof(p_xinput->epout_buf.buffer)));
+        TU_ASSERT(usbd_edpt_xfer(rhport, p_xinput->ep_out, p_xinput->epout_buf.data(),
+                                 XboxPacket::capacity()));
 
     } else if (ep_addr == p_xinput->ep_in) {
-        LOG_TRC(CAT_WIRE, "OUT (%s)", get_command_name(std::to_underlying(p_xinput->epin_buf.frame.command)));
-        LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epin_buf.buffer, xferred_bytes);
+        LOG_TRC(CAT_WIRE, "OUT (%s)", get_command_name(std::to_underlying(p_xinput->epin_buf.frame().command)));
+        LOG_HEXDUMP(CAT_WIRE, LOG_LEVEL_TRACE, p_xinput->epin_buf.data(), xferred_bytes);
         p_xinput->epin_buf.handled = 1;
     }
     return true;

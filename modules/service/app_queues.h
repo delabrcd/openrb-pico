@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include "xbox_one_protocol.h"   // xbox_packet_t
+#include "xbox_one_protocol.h"   // XboxPacket
 
 typedef struct { uint8_t data[3]; } midi_note_t;
 
@@ -10,5 +10,5 @@ typedef struct { uint8_t data[3]; } midi_note_t;
 void app_queues_init(void);
 
 // host TX: core0 producers (device-RX handlers) -> core1 usb_host_task consumer.
-bool host_tx_send(const xbox_packet_t *pkt);  // non-blocking; false if full
-bool host_tx_recv(xbox_packet_t *pkt);        // non-blocking; false if empty
+bool host_tx_send(const XboxPacket *pkt);  // non-blocking; false if full
+bool host_tx_recv(XboxPacket *pkt);        // non-blocking; false if empty

@@ -17,7 +17,7 @@
 
 #include "instrument_manager.h"  // orb::service::InstrumentManager, instruments_e
 #include "packet_queue.h"        // orb::driver::DeviceTxFifo
-#include "xbox_one_protocol.h"   // xbox_packet_t
+#include "xbox_one_protocol.h"   // XboxPacket
 
 namespace orb::driver {
 
@@ -25,7 +25,7 @@ namespace orb::driver {
 // GuitarHost, passed in at construction; dev_addr_ == 0 means the slot is free.
 class Guitar {
    public:
-    Guitar(instruments_e player, orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+    Guitar(instruments_e player, orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
            orb::service::InstrumentManager& instruments);
 
     std::uint8_t dev_addr() const { return dev_addr_; }
@@ -35,9 +35,9 @@ class Guitar {
     void on_report(std::span<const std::uint8_t> report);
 
    private:
-    orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo_;
+    orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo_;
     orb::service::InstrumentManager& instruments_;
-    xbox_packet_t out_packet_{};
+    XboxPacket out_packet_{};
     std::uint8_t dev_addr_{0};
     instruments_e player_;
 };
@@ -53,7 +53,7 @@ namespace orb::service {
 // should ask the USB stack for the next report -- they never touch it themselves.
 class GuitarHost {
    public:
-    GuitarHost(orb::driver::DeviceTxFifo<xbox_packet_t, 16>& txfifo,
+    GuitarHost(orb::driver::DeviceTxFifo<XboxPacket, 16>& txfifo,
               orb::service::InstrumentManager& instruments);
 
     // Returns true iff a supported guitar was assigned a free slot -- the driver seam should
