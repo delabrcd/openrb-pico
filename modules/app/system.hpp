@@ -27,6 +27,7 @@
 #include "app_queues.h"      // midi_note_t
 #include "drums.h"           // orb::service::DrumEngine
 #include "guitar.h"          // orb::service::GuitarHost
+#include "host_controller.hpp"  // orb::app::HostController
 #include "instrument_manager.h"  // orb::service::InstrumentManager, InstrumentEvent
 #include "midi.h"            // orb::service::SerialMidi
 #include "osal/queue.hpp"    // orb::osal::Queue
@@ -43,7 +44,8 @@ class System {
           serial_midi_(instruments_),
           drums_(adapter_, midi_note_q_, serial_midi_, tx_fifo_, instruments_),
           guitars_(tx_fifo_, instruments_),
-          reboot_recovery_(adapter_, recovery_state_) {}
+          reboot_recovery_(adapter_, recovery_state_),
+          host_controller_(adapter_, tx_fifo_, host_tx_q_, recovery_state_, actuators_) {}
 
     System(const System&) = delete;
     System& operator=(const System&) = delete;
@@ -61,6 +63,7 @@ class System {
     orb::board::Actuators& actuators() { return actuators_; }
     RecoveryState& recovery_state() { return recovery_state_; }
     RebootRecovery& reboot_recovery() { return reboot_recovery_; }
+    HostController& host_controller() { return host_controller_; }
 
    private:
     // Members (leaves -> services -> app/orchestration). Declaration order IS construction
@@ -81,6 +84,9 @@ class System {
     orb::service::GuitarHost guitars_;
     // Must come after adapter_ and recovery_state_ (stores references to both).
     RebootRecovery reboot_recovery_;
+    // Must come after actuators_/adapter_/tx_fifo_/host_tx_q_/recovery_state_ (stores
+    // references to all five).
+    HostController host_controller_;
 };
 
 // The single composition-root instance (defined in system.cpp).

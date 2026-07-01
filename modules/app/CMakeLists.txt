@@ -22,6 +22,9 @@ target_link_libraries(orb_app INTERFACE
     orb_service orb_driver orb_protocol orb_log
     orb_osal orb_hal orb_platform_pico orb_board orb_core)
 
-# Board-dependent TU (ORB_BOARD_ID / orb_bsp.h): compiled per-executable, not here.
+# Board-dependent TUs (ORB_BOARD_ID / orb_bsp.h): compiled per-executable, not here.
+# host_controller.cpp joins main.cpp here (not the INTERFACE target_sources above) because
+# it touches orb_bsp.h's ORB_BOARD_ID-gated host_recovery() split.
 set(ORB_APP_BOARD_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/host_controller.cpp
     CACHE INTERNAL "board-dependent app TUs compiled per-executable")
