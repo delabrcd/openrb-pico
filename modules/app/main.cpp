@@ -2,7 +2,6 @@
 #include <device/usbd.h>
 #include <hardware/clocks.h>
 #include <host/usbh.h>
-#include <optional>
 #include <algorithm>
 #include <pico/multicore.h>
 #include <pico/stdio.h>
@@ -55,13 +54,9 @@
 inline constexpr uint8_t kHostControllerId = 1u;
 // FIRST_XBOX_CONTROLLER_IDX removed -- unused constant.
 
-// GPIO hardware objects — emplaced at init time (not as globals) per the hardware-object
-// lifetime rule in docs/architecture/modern-cpp.md: constructors that touch the chip must
-// not run before main() sets the system clock. std::optional has a trivial constructor so
-// these land in BSS with no global-ctor.
-static std::optional<orb::hal::GpioOut> s_led;         // auth/status LED
-static std::optional<orb::hal::GpioOd>  s_hub_rst;     // CH334R RESET# (CUSTOM board only)
-static std::optional<orb::hal::GpioOut> s_5v_en;       // 5V enable (FEATHER board only)
+// Board GPIO actuation (LED / hub RESET# / 5V enable) now lives in orb::board::Actuators,
+// owned by orb::app::System and reached via orb::app::system().actuators(). See
+// modules/board/actuators.{hpp,cpp}.
 
 // Cross-core adapter state (state, tracked controller, liveness/seen/reinit flags)
 // now lives behind the adapter_ctx module -- see inc/adapter_ctx.h for the concurrency
@@ -92,9 +87,6 @@ static std::atomic<uint32_t> g_host_rx_count{0};
 // Read core0 (recovery_reboot_task), written core1 (host_recovery_task) -- genuinely cross-core.
 static std::atomic<bool> g_runtime_recovery_engaged{false};
 
-// Defined further down (init-time hub reset); reused at runtime by usb_host_task.
-static void reset_usb_hub(void);
-
 // tinyusb 0.18's enumeration uses blocking osal_task_delay() (= sleep_ms) on the
 // host core. sleep_ms hangs on the core running Pico-PIO-USB (it waits on an
 // alarm event that core never receives), which stalls enumeration right after
@@ -112,19 +104,8 @@ void ORB_FAST(tusb_time_delay_ms_api)(uint32_t ms) {
 }
 
 
-static inline void set_auth_led(bool val) { if (s_led) s_led->set(val); }
-
-static inline void set_usb_host(bool on) {
-#if ORB_BOARD_ID == ORB_BOARD_ID_FEATHER
-    if (!s_5v_en) s_5v_en.emplace(orb::board::pin_5v_en);
-    s_5v_en->set(on);
-#else
-    (void)on;
-#endif
-}
-
 void xboxd_on_reset_cb() {
-    set_auth_led(false);
+    orb::app::system().actuators().set_auth_led(false);
 
     // TODO CDD - look into a better way of reinitializing the USB Host stack than a hard reset
     if (orb::service::adapter().state() != adapter_state_t::STATE_INIT &&
@@ -214,7 +195,7 @@ static void handle_auth(const XboxPacket *packet) {
     if (packet->frame().command == frame_command_e::CMD_AUTHENTICATE &&
         packet->frame().length == 2 &&
         packet->data()[3] == 2 && packet->data()[4] == 1 && packet->data()[5] == 0) {
-        set_auth_led(true);
+        orb::app::system().actuators().set_auth_led(true);
 
         LOG_INFO(CAT_DEV, "AUTHENTICATED!");
         orb::service::adapter().set_state(adapter_state_t::STATE_RUNNING);
@@ -267,8 +248,8 @@ static void handle_running(const XboxPacket *packet) {
         case frame_command_e::CMD_POWER_MODE:
             if (packet->power().data == std::to_underlying(power_mode_e::POWER_OFF)) {
                 orb::service::adapter().set_state(adapter_state_t::STATE_POWER_OFF);
-                set_auth_led(false);
-                set_usb_host(false);
+                orb::app::system().actuators().set_auth_led(false);
+                orb::app::system().actuators().set_usb_host(false);
             }
             break;
         case frame_command_e::CMD_ACKNOWLEDGE:
@@ -339,7 +320,7 @@ static void configure_host() {
     tuh_init(kHostControllerId);
     LOG_INFO(CAT_HOST, "finished configuring usb host");
 
-    set_usb_host(true);
+    orb::app::system().actuators().set_usb_host(true);
 }
 
 // Runtime (no-reboot) host recovery, run from the core1 host loop.
@@ -421,7 +402,7 @@ static void host_recovery_task(void) {
             xboxh_clear_error_streak();    // fresh count; GRACE lets re-enum land before it re-trips
             LOG_WARN(CAT_RECOV, "HOST RECOVERY: controller wedged -> hub reset %u/%u",
                      (unsigned)attempts, (unsigned)kHostRecovMax);
-            reset_usb_hub();  // RESET# pulse (busy_wait_ms, core1-safe); TinyUSB re-enumerates
+            orb::app::system().actuators().reset_usb_hub();  // RESET# pulse (busy_wait_ms, core1-safe); TinyUSB re-enumerates
         }
     }
 
@@ -480,33 +461,6 @@ void usb_host_task(void *param) {
 
         usb_log_task();        // drain the log ring out to the USB flash drive
     }
-}
-
-// The CH334R hub stays powered across an RP2040 warm/watchdog reset, so it keeps
-// stale state and the downstream controller fails to re-enumerate -- only a cold
-// power-on recovers it. GPIO18 (USB_HUB_RST) drives the hub's active-low RESET#;
-// pulse it on every boot to force a clean hub reset. Custom board only -- on the
-// FEATHER board GPIO18 is the 5V enable.
-//
-// CH334/335 datasheet (V2.5, sec 3.2 / Table 3-2): RESET#/CDP is active-low with a
-// built-in ~25k pull-up; a low pulse >4us resets the chip; POR after release is
-// ~5-14ms. CRITICAL: do NOT actively drive the pin HIGH -- as the hub exits reset,
-// a driven-high level enables the CDP charging-port mode and disables low-power
-// sleep, which disturbs the downstream port. Release to Hi-Z instead and let the
-// internal pull-up bring it high (equivalent to the datasheet's recommended series
-// Schottky-diode-to-MCU arrangement).
-static void reset_usb_hub(void) {
-#if ORB_BOARD_ID == ORB_BOARD_ID_CUSTOM_REV_0_1
-    // Emplace once; subsequent calls (runtime recovery) reuse the already-configured pin.
-    if (!s_hub_rst) s_hub_rst.emplace(orb::board::pin_usb_hub_rst);
-    orb::hal::Clock clk;
-    s_hub_rst->assert_low();  // drive RESET# low (>4us; we hold 10ms)
-    // hal::Clock::delay wraps busy_wait_us/ms — pure timer wait, safe pre-scheduler and on
-    // core1. Never sleep_ms: that blocks via FreeRTOS before the scheduler is up (deadlock).
-    clk.delay(std::chrono::milliseconds(10));
-    s_hub_rst->release();     // release to Hi-Z; external pull-up -> high, no CDP mode
-    clk.delay(std::chrono::milliseconds(50));  // wait out the hub POR (~5-14ms) before host init
-#endif
 }
 
 // Bounded auto-reboot warm-reset recovery, gated on authentication. A controller
@@ -635,11 +589,11 @@ static void init() {
     instrument_manager_init();
 
     // LED: push-pull output, start low (auth not yet established).
-    s_led.emplace(orb::board::pin_led, /*initial=*/false);
+    orb::app::system().actuators().init_led();
 
     // Reset the hub before bringing up the host so a warm/watchdog reset
     // re-enumerates the controller cleanly instead of staying wedged.
-    reset_usb_hub();
+    orb::app::system().actuators().reset_usb_hub();
 
     // The USB host stack now comes up inside usb_host_task on core1 once the
     // FreeRTOS scheduler launches that core (see main()).

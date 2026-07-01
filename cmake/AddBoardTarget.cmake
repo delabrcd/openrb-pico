@@ -5,17 +5,19 @@
 # dirs + the vendored USB/RTOS libs) into THIS executable, where it is all compiled once --
 # exactly as the old flat SOURCES list did (so code size is unchanged by the restructure).
 #
-# The ONLY per-board variation is ORB_BOARD_ID, which reaches exactly two TUs through
-# orb_bsp.h: service/midi.cpp and app/main.cpp. Those are exported by their modules as
-# ORB_SERVICE_BOARD_SOURCES / ORB_APP_BOARD_SOURCES and compiled HERE, straight into each
-# executable, so each board gets its own ORB_BOARD_ID while the rest of the tree stays
-# board-agnostic. (They also give the executable its own concrete sources.)
+# The ONLY per-board variation is ORB_BOARD_ID, which reaches exactly three TUs through
+# orb_bsp.h: service/midi.cpp, app/main.cpp and board/actuators.cpp. Those are exported by
+# their modules as ORB_SERVICE_BOARD_SOURCES / ORB_APP_BOARD_SOURCES / ORB_BOARD_BOARD_SOURCES
+# and compiled HERE, straight into each executable, so each board gets its own ORB_BOARD_ID
+# while the rest of the tree stays board-agnostic. (They also give the executable its own
+# concrete sources.)
 function(add_board_target PROJECT_NAME BOARD_NAME)
     set(TARGET_NAME ${PROJECT_NAME}_${BOARD_NAME})
 
     add_executable(${TARGET_NAME}
         ${ORB_APP_BOARD_SOURCES}
-        ${ORB_SERVICE_BOARD_SOURCES})
+        ${ORB_SERVICE_BOARD_SOURCES}
+        ${ORB_BOARD_BOARD_SOURCES})
 
     # orb_app -> the whole module graph (INTERFACE sources + usage requirements + the
     # vendored libs it transitively links). fatfs -> the FatFs archive. The vendored

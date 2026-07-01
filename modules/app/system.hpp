@@ -22,6 +22,7 @@
  */
 #pragma once
 
+#include "actuators.hpp"     // orb::board::Actuators
 #include "adapter_ctx.h"     // orb::service::AdapterState
 #include "app_queues.h"      // midi_note_t
 #include "drums.h"           // orb::service::DrumEngine
@@ -55,6 +56,7 @@ class System {
     orb::service::SerialMidi& serial_midi() { return serial_midi_; }
     orb::service::DrumEngine& drums() { return drums_; }
     orb::service::GuitarHost& guitars() { return guitars_; }
+    orb::board::Actuators& actuators() { return actuators_; }
 
    private:
     // Members (leaves -> services -> app/orchestration). Declaration order IS construction
@@ -62,6 +64,7 @@ class System {
     // (it stores references to them); instruments_/tx_fifo_/midi_note_q_ must exist before
     // serial_midi_/drums_/guitars_ (they store references to those in turn), and serial_midi_
     // must precede drums_ (drums_ stores a reference to it).
+    orb::board::Actuators actuators_;  // leaf (no injected deps); GPIO emplaced at runtime
     orb::service::AdapterState adapter_;
     orb::driver::DeviceTxFifo<XboxPacket, 16> tx_fifo_;
     orb::osal::Queue<orb::service::InstrumentEvent, 8> instr_events_;
