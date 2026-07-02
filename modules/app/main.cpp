@@ -1,4 +1,3 @@
-#include <bsp/board_api.h>
 #include <device/usbd.h>
 #include <hardware/clocks.h>
 #include <algorithm>
@@ -31,20 +30,18 @@
 #include "hardware/structs/watchdog.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
-#include "identifiers.h"
 #include "instrument_manager.h"
 #include "midi.h"
 #include "orb_bsp.h"
 #include "orb_log.h"
 #include "usb_log.h"
 // packet_queue.h is a C++ header now (plain C++ free functions). The xbox device driver
-// header is a C++ TU but exposes the genuine TinyUSB driver-class callback seam (xboxd_* /
-// the weak *_cb hooks implemented below), so it keeps its own internal extern "C" guard --
-// include it normally here. The host-side counterpart (xbox_controller_driver.h) moved to
-// modules/app/host_controller.cpp along with the xboxh_* seam it implements.
+// seam (xboxd_* / the weak *_cb hooks) moved to modules/app/device_session.cpp along with
+// the device-RX state machine that implements it; the host-side counterpart
+// (xbox_controller_driver.h) moved to modules/app/host_controller.cpp along with the
+// xboxh_* seam it implements.
 #include "packet_queue.h"
 #include "system.hpp"
-#include "xbox_device_driver.h"
 
 // Board GPIO actuation (LED / hub RESET# / 5V enable) now lives in orb::board::Actuators,
 // owned by orb::app::System and reached via orb::app::system().actuators(). See
@@ -54,9 +51,13 @@
 // now lives behind the adapter_ctx module -- see inc/adapter_ctx.h for the concurrency
 // rationale (packed controller word, lock-free volatiles).
 
-// Device-side scratch packet: built by the core0 device-RX handlers (auth / identify /
-// running / announce) before being copied into the cross-core TX fifo. core0 ONLY.
-static XboxPacket out_packet;
+// Device-side scratch packet, the identify-sequence cursor, and the announce heartbeat
+// (was out_packet / handle_identify's identify_sequence / announce_task's
+// last_announce_time), plus the core0 device-RX state machine (auth / identify / init /
+// running) and the USB device task itself, now live in orb::app::DeviceSession
+// (modules/app/device_session.{hpp,cpp}), owned by orb::app::System and reached via
+// orb::app::system().device_session(). See modules/core/seam_anchor.hpp for how the
+// TinyUSB xboxd_* callbacks dispatch into it.
 
 // Host-side scratch packet for the core1 controller-input path, the runtime (non-reboot)
 // host recovery state, and the core1 host loop itself now live in orb::app::HostController
@@ -80,131 +81,6 @@ void ORB_FAST(tusb_time_delay_ms_api)(uint32_t ms) {
     }
 }
 
-
-void xboxd_on_reset_cb() {
-    orb::app::system().actuators().set_auth_led(false);
-
-    // TODO CDD - look into a better way of reinitializing the USB Host stack than a hard reset
-    if (orb::service::adapter().state() != adapter_state_t::STATE_INIT &&
-        orb::service::adapter().state() != adapter_state_t::STATE_NONE)
-        watchdog_reboot(0, 0, 10);
-}
-
-static void handle_auth(const XboxPacket *packet) {
-    if (packet->frame().command == frame_command_e::CMD_AUTHENTICATE &&
-        packet->frame().length == 2 &&
-        packet->data()[3] == 2 && packet->data()[4] == 1 && packet->data()[5] == 0) {
-        orb::app::system().actuators().set_auth_led(true);
-
-        LOG_INFO(CAT_DEV, "AUTHENTICATED!");
-        orb::service::adapter().set_state(adapter_state_t::STATE_RUNNING);
-
-        notify_xbox_of_all_instruments(out_packet);
-    }
-
-    LOG_DBG(CAT_DEV, "Sending controller %d bytes", packet->length);
-    host_tx_send(packet);  // drained + sent on core1 by HostController::run
-    return;
-}
-
-static void handle_identify(const XboxPacket *packet) {
-    static uint8_t identify_sequence = 0;
-    switch (packet->frame().command) {
-        case frame_command_e::CMD_IDENTIFY:
-        case frame_command_e::CMD_ACKNOWLEDGE:
-            if (identify_sequence >= identifiers_get_n()) {
-                LOG_INFO(CAT_DEV, "Starting identify sequence over");
-                identify_sequence = 0;
-            }
-            identifiers_get(identify_sequence, &out_packet);
-            xbox_fifo_write(&out_packet);
-            identify_sequence++;
-            break;
-        case frame_command_e::CMD_AUTHENTICATE:
-            LOG_INFO(CAT_DEV, "Moving to Authenticate");
-            orb::service::adapter().set_state(adapter_state_t::STATE_AUTHENTICATING);
-            return handle_auth(packet);
-            break;
-        default:
-            break;
-    }
-    return;
-}
-
-static void handle_init(const XboxPacket *packet) {
-    switch (packet->frame().command) {
-        case frame_command_e::CMD_IDENTIFY:
-            LOG_INFO(CAT_DEV, "Moving to Identify");
-            orb::service::adapter().set_state(adapter_state_t::STATE_IDENTIFYING);
-            return handle_identify(packet);
-        default:
-            break;
-    }
-}
-
-static void handle_running(const XboxPacket *packet) {
-    switch (packet->frame().command) {
-        case frame_command_e::CMD_POWER_MODE:
-            if (packet->power().data == std::to_underlying(power_mode_e::POWER_OFF)) {
-                orb::service::adapter().set_state(adapter_state_t::STATE_POWER_OFF);
-                orb::app::system().actuators().set_auth_led(false);
-                orb::app::system().actuators().set_usb_host(false);
-            }
-            break;
-        case frame_command_e::CMD_ACKNOWLEDGE:
-            host_tx_send(packet);  // drained + sent on core1 by HostController::run
-            break;
-        case frame_command_e::CMD_LIST_CONNECTED_INSTRUMENTS:
-            notify_xbox_of_all_instruments(out_packet);
-            break;
-        case frame_command_e::CMD_LIST_INSTRUMENT:
-            notify_xbox_of_single_instrument(static_cast<instruments_e>(packet->data()[4]), out_packet);
-            break;
-        default:
-            break;
-    }
-    return;
-}
-
-static void handle_xboxd_packet(const XboxPacket *packet) {
-    switch (orb::service::adapter().state()) {
-        case adapter_state_t::STATE_NONE:
-            return;
-        case adapter_state_t::STATE_INIT:
-            return handle_init(packet);
-        case adapter_state_t::STATE_IDENTIFYING:
-            return handle_identify(packet);
-        case adapter_state_t::STATE_AUTHENTICATING:
-            return handle_auth(packet);
-        case adapter_state_t::STATE_RUNNING:
-            return handle_running(packet);
-        default:
-            break;
-    }
-    return;
-}
-
-bool xboxd_packet_received_cb(uint8_t rhport, const XboxPacket *buf, uint32_t xferred_bytes) {
-    (void)rhport;
-    if (xferred_bytes < sizeof(frame_t)) return false;
-
-    handle_xboxd_packet(buf);
-    return true;
-}
-
-static void announce_task() {
-    if (orb::service::adapter().state() != adapter_state_t::STATE_INIT) return;
-
-    static unsigned long last_announce_time = 0;
-    if (std::chrono::milliseconds(board_millis() - last_announce_time) > orb::service::announce_interval) {
-        if (orb::service::adapter().controller_idx() < UINT8_MAX) {
-            LOG_INFO(CAT_DEV, "ANNOUNCING");
-            identifiers_get_announce(&out_packet);
-            xbox_fifo_write(&out_packet);
-            last_announce_time = board_millis();
-        }
-    }
-}
 
 // USB host task. Pinned to core1 and the ONLY task that runs there, so the
 // PIO-USB bit-banged signalling sees ~no FreeRTOS context switches. The SMP
@@ -289,24 +165,18 @@ static void init() {
     serial_midi_init();
     LOG_INFO(CAT_SYS, "finished initializing serial midi...");
 
-    std::ranges::fill(out_packet.wire(), std::uint8_t{0});
-
     orb::service::adapter().set_state(adapter_state_t::STATE_INIT);
     LOG_INFO(CAT_SYS, "finished init, starting main process...");
 }
 
 // ---- core0 per-concern tasks (all pinned to core0; see app_tasks.cpp) -----------
 
-// USB device stack + the send drain. These stay in ONE task because both touch the
-// device endpoint (tud_task processes events; xboxd_send_task claims the IN endpoint),
-// and TinyUSB device-stack access must be serialized. tud_task_ext(4) blocks on the
-// device event queue but wakes at least every 4ms to drain device_tx to the console.
+// USB device stack + the send drain. Body now lives in orb::app::DeviceSession::run()
+// (modules/app/device_session.cpp) -- this is a thin trampoline so app_tasks.cpp's task
+// registration stays unchanged.
 void usb_device_task(void *param) {
     (void)param;
-    while (true) {
-        tud_task_ext(4, false);
-        xboxd_send_task();
-    }
+    orb::app::system().device_session().run();
 }
 
 // Instrument input: drains the USB-MIDI note queue (filled on core1) + serial MIDI,
@@ -337,7 +207,7 @@ void instrument_task(void *param) {
 void housekeeping_task(void *param) {
     (void)param;
     while (true) {
-        announce_task();
+        orb::app::system().device_session().announce();
         orb::app::system().reboot_recovery().service();
         dlog_drain();
         orb::osal::sleep_for(std::chrono::milliseconds(5));

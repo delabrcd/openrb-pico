@@ -29,6 +29,7 @@ void bind_usb_seams() {
     orb::driver::bind_guitar_hid(system().guitars());
     orb::driver::bind_drums_midi(system().drums());
     orb::app::bind_host_controller(system().host_controller());
+    orb::app::bind_device_session(system().device_session());
 }
 
 }  // namespace orb::app
