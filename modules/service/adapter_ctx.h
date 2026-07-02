@@ -3,8 +3,8 @@
 // Cross-core adapter state shared between core0 (USB device stack / device-RX
 // callbacks) and core1 (USB host stack / controller mount-umount-RX). Previously a
 // loose set of `volatile` globals in main.cpp; consolidated here as a clean modern-C++
-// service: orb::service::AdapterState, reached through the orb::service::adapter()
-// singleton accessor. No extern "C" facade -- every consumer is C++ and calls the
+// service: orb::service::AdapterState, owned by orb::app::System and reached through
+// orb::app::system().adapter(). No extern "C" facade -- every consumer is C++ and calls the
 // object directly.
 //
 // Concurrency (RP2040, dual-core Cortex-M0+ where aligned 32-bit/byte loads/stores
@@ -89,11 +89,6 @@ class AdapterState {
     std::atomic<bool> seen_{false};                   // written core1, read core0
     std::atomic<bool> reinit_{false};                 // core1 only
 };
-
-// The single cross-core adapter-state instance, owned by orb::app::System and reached
-// through this forwarder (defined in the app-layer composition-root bridge,
-// modules/app/system.cpp -- service/ TUs never reach into orb::app directly).
-AdapterState& adapter();
 
 }  // namespace orb::service
 

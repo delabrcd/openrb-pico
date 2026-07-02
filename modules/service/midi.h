@@ -56,10 +56,8 @@ namespace orb::service {
 
 // Serial (UART) MIDI parser + the drum-disconnect timer, as a modern-C++ service
 // (orb::service::SerialMidi). Same service-rewrite pattern as InstrumentManager/DrumEngine:
-// a C++ object owns the state, thin free functions (declared below, defined in the
-// app-layer bridge -- this file is board-dependent so it stays out of the composition-root
-// TU, see modules/service/CMakeLists.txt) forward into the single instance owned by
-// orb::app::System.
+// a C++ object owns the state; the single instance is owned by orb::app::System and reached
+// through orb::app::system().serial_midi().
 //
 // uart_ is std::optional so the hal::Uart constructor (uart_init + gpio_set_function) runs
 // only in init(), not at System-construction time relative ordering concerns -- matching the
@@ -70,7 +68,7 @@ class SerialMidi {
         : instruments_(instruments) {}
 
     // Bring up the MIDI UART (baud 31250) and arm the disconnect timer. Call once, before
-    // the scheduler starts (matches the old serial_midi_init timing).
+    // the scheduler starts.
     void init();
 
     // Parse bytes off the UART; returns a complete 3-byte message when one is ready,
@@ -99,8 +97,3 @@ class SerialMidi {
 };
 
 }  // namespace orb::service
-
-// Plain C++ free function (every consumer is a C++ TU); thin forwarder into the single
-// orb::service::SerialMidi instance owned by orb::app::System, defined in the app-layer
-// composition-root bridge (modules/app/system.cpp).
-void serial_midi_init();

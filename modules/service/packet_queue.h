@@ -110,18 +110,3 @@ class DeviceTxFifo {
 constexpr uint32_t kXboxFifoDepth = 16;
 
 }  // namespace orb::driver
-
-// --- public API (plain C++ free functions) ------------------------------------------------
-// Reached from the device driver (xbox_device_driver) and the feature TUs (drums, guitar,
-// instrument_manager, main); thin forwarders into the single DeviceTxFifo instance owned by
-// orb::app::System (definitions live in the app-layer bridge TU, modules/app/system.cpp --
-// service/ TUs never reach into orb::app directly).
-void xbox_fifo_init(void);
-uint32_t xbox_fifo_read(XboxPacket *buffer);   // 1 if read, 0 if empty (single drainer)
-uint32_t xbox_fifo_peek(XboxPacket *buffer);   // 1 if available, 0 if empty
-void xbox_fifo_advance(void);                     // drop the head-of-line item
-uint32_t xbox_fifo_write(const XboxPacket *buffer);  // 1 if enqueued, 0 if full (multi-writer)
-uint32_t xbox_fifo_count(void);
-bool xbox_fifo_empty(void);
-bool xbox_fifo_full(void);
-void xbox_fifo_clear(void);

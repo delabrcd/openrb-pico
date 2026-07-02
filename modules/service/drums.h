@@ -97,10 +97,3 @@ class DrumEngine {
 };
 
 }  // namespace orb::service
-
-// Plain C++ free function (every consumer is a C++ TU); thin forwarder into
-// orb::service::DrumEngine::tick(), defined in the app-layer bridge (modules/app/system.cpp).
-
-// Drives the drum input packet from the MIDI sources. Called every tick from the
-// core0 drum_input_task (see app/main.cpp).
-void drum_task();

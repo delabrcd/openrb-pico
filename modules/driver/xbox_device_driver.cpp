@@ -20,8 +20,9 @@
 #include "device/usbd_pvt.h"
 #include "xbox_device_driver.h"
 
-// packet_queue.h (xbox_fifo_read et al.) and xbox_one_protocol.h (included above) are C++
-// headers now -- their functions are plain C++ free functions -- so include normally.
+// packet_queue.h (orb::driver::DeviceTxFifo) and xbox_one_protocol.h (included above) are
+// C++ headers now, so include normally.
+#include "core/seam_anchor.hpp"
 #include "packet_queue.h"
 
 // only need a fifo for sent packets
@@ -40,6 +41,11 @@ struct xinputd_interface_t {
 };
 
 CFG_TUSB_MEM_SECTION std::array<xinputd_interface_t, CFG_TUD_XINPUT> _xinputd_itf;
+
+// Device-bound TX fifo seam: bound once (bind_device_tx_fifo, called from
+// orb::app::bind_usb_seams() before tud_init()) to the System-owned DeviceTxFifo. See
+// modules/core/seam_anchor.hpp.
+orb::core::SeamAnchor<orb::driver::DeviceTxFifo<XboxPacket, 16>> g_dev_tx_fifo;
 
 xinputd_interface_t *find_new_itf() {
     for (auto &itf : _xinputd_itf) {
@@ -65,6 +71,12 @@ uint8_t request0x90_index_0x04[] = {
 
 }  // namespace
 
+namespace orb::driver {
+void bind_device_tx_fifo(orb::driver::DeviceTxFifo<XboxPacket, 16>& fifo) {
+    g_dev_tx_fifo.bind(fifo);
+}
+}  // namespace orb::driver
+
 extern "C" {
 
 bool tud_xinput_n_ready(uint8_t itf) {
@@ -84,7 +96,7 @@ bool xboxd_send(XboxPacket *packet) {
 bool xboxd_send_task() {
     XboxPacket *pkt = &_xinputd_itf[0].epin_buf;
     if (pkt->handled) {
-        TU_VERIFY(xbox_fifo_read(pkt));
+        TU_VERIFY(g_dev_tx_fifo && g_dev_tx_fifo->read(*pkt));
     }
 
     TU_VERIFY((orb::hal::Clock{}.now().time_since_epoch() - pkt->triggered_time) >

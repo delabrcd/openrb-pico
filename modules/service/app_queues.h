@@ -2,13 +2,8 @@
 #include <cstdint>
 #include "xbox_one_protocol.h"   // XboxPacket
 
+// Cross-core queue payload (host-TX core0->core1, MIDI notes core1->core0). The queues
+// themselves are owned by orb::app::System (orb::app::system().host_tx() /
+// orb::app::system().midi_notes()) -- host TX: core0 producers (device-RX handlers) ->
+// core1 usb_host_task consumer.
 typedef struct { uint8_t data[3]; } midi_note_t;
-
-// Plain C++ free functions (every consumer is a C++ TU); the queues themselves are owned by
-// orb::app::System, so these forward into it -- defined in the app-layer composition-root
-// bridge, modules/app/system.cpp (service/ TUs never reach into orb::app directly).
-void app_queues_init(void);
-
-// host TX: core0 producers (device-RX handlers) -> core1 usb_host_task consumer.
-bool host_tx_send(const XboxPacket *pkt);  // non-blocking; false if full
-bool host_tx_recv(XboxPacket *pkt);        // non-blocking; false if empty

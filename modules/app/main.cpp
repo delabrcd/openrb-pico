@@ -20,22 +20,18 @@
 #include "hal/platform.hpp"
 
 #include "adapter.h"
-#include "app_queues.h"
-#include "adapter_ctx.h"
 #include "hardware/structs/vreg_and_chip_reset.h"
 #include "hardware/structs/watchdog.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
-#include "instrument_manager.h"
-#include "midi.h"
 #include "orb_bsp.h"
 #include "orb_log.h"
-// packet_queue.h is a C++ header now (plain C++ free functions). The xbox device driver
-// seam (xboxd_* / the weak *_cb hooks) moved to modules/app/device_session.cpp along with
-// the device-RX state machine that implements it; the host-side counterpart
-// (xbox_controller_driver.h) moved to modules/app/host_controller.cpp along with the
-// xboxh_* seam it implements.
-#include "packet_queue.h"
+// The xbox device driver seam (xboxd_* / the weak *_cb hooks) moved to
+// modules/app/device_session.cpp along with the device-RX state machine that implements it;
+// the host-side counterpart (xbox_controller_driver.h) moved to modules/app/host_controller.cpp
+// along with the xboxh_* seam it implements. Every service/queue type this file touches is
+// reached through orb::app::system() (system.hpp), which pulls in adapter_ctx.h / app_queues.h
+// / packet_queue.h / instrument_manager.h / midi.h transitively.
 #include "system.hpp"
 
 // Board GPIO actuation (LED / hub RESET# / 5V enable) now lives in orb::board::Actuators,
@@ -96,11 +92,12 @@ static void init() {
 
     // Bring the cross-core adapter context up before anything can touch it
     // (state=STATE_NONE, no controller tracked, flags cleared).
-    orb::service::adapter().reset();
+    orb::app::system().adapter().reset();
 
     // Cross-core queues (host-TX core0->core1, MIDI notes core1->core0). Created
     // before the scheduler starts; safe to create here alongside the other init.
-    app_queues_init();
+    orb::app::system().host_tx().create();
+    orb::app::system().midi_notes().create();
 
     // orb_log owns the debug UART (uart1, GPIO24/25) via dlog and attaches the
     // USB-stick mirror sink; the logger and the TinyUSB logs both drain through it
@@ -125,13 +122,13 @@ static void init() {
     // orb_log_init() above: core0 pushes drained bytes into the ring and core1
     // (which owns the USB host stack) writes them out to LOG.TXT on the drive.
 
-    xbox_fifo_init();
+    orb::app::system().tx_fifo().init();
     LOG_INFO(CAT_SYS, "finished initializing xbox fifo...");
 
     // Instrument hot-plug event queue: producers (guitar/drums/midi, either core) post
     // {instrument, connect} events; the core0 instrument_task is the sole applier. Must
     // exist before any connect/disconnect_instrument call (all after the scheduler starts).
-    instrument_manager_init();
+    orb::app::system().instruments().init_queue();
 
     // LED: push-pull output, start low (auth not yet established).
     orb::app::system().actuators().init_led();
@@ -145,10 +142,10 @@ static void init() {
     LOG_INFO(CAT_SYS, "starting usb device stack");
     tud_init(TUD_OPT_RHPORT);
 
-    serial_midi_init();
+    orb::app::system().serial_midi().init();
     LOG_INFO(CAT_SYS, "finished initializing serial midi...");
 
-    orb::service::adapter().set_state(adapter_state_t::STATE_INIT);
+    orb::app::system().adapter().set_state(adapter_state_t::STATE_INIT);
     LOG_INFO(CAT_SYS, "finished init, starting main process...");
 }
 
