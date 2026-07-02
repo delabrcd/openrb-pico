@@ -37,6 +37,16 @@ MUST follow this; it is the direction, not yet uniformly realized.
   `std::chrono`. The one deliberate exception is wire/descriptor fields that carry a numeric
   time value on the USB ABI (e.g. `bInterval`/`PollingIntervalMS`, packet `triggered_time`),
   which stay their raw integer type because they ARE the wire encoding, not our clock API.
+- **Logging is the ONE sanctioned ambient module** (the assert-like exception to "everything
+  is a System-owned, injected class"). `modules/log/` is deliberately NOT a System member and
+  NOT injected: the `LOG_*` macros must be callable from every layer (core → app), from both
+  cores, on the PIO-USB hot path, and before/without any object graph — so the emit path reads
+  `constinit` module-static state (level table + the deferred SPSC ring) directly, lock-free,
+  no indirection. Making it System-owned would force the `log` layer to reach up into `app`
+  (a layering violation) and add a bound-pointer hop to every log call. Runtime config
+  (`orb::log::set_level`/`set_cat_level`) mutates that same relaxed-atomic state. The vendor
+  seams it does own (TinyUSB `tuh_msc_*` + FatFs `disk_*` for the USB-stick sink) still get the
+  typed-anchor seam treatment like any other C-ABI seam.
 
 ## Language & style
 
