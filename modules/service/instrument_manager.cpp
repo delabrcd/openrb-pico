@@ -137,6 +137,12 @@ void InstrumentManager::service_once() {
         apply(ev.instrument, ev.connect);
 }
 
+void InstrumentManager::run() {
+    while (true) {
+        service_once();  // parks until an event arrives, then applies it
+    }
+}
+
 bool InstrumentManager::claim(instruments_e instrument, bool want) {
     if (connected_[idx(instrument)].load(kRlx) == want) return false;
     connected_[idx(instrument)].store(want, kRlx);

@@ -56,6 +56,9 @@ class DrumEngine {
     // --- core0: drum_task body -----------------------------------------------------------
     void tick();
 
+    // The core0 drum-input task body (was drum_input_task in main.cpp). Never returns.
+    void run();
+
     // --- core1: TinyUSB host MIDI connect/disconnect (called from the driver seam) --------
     void on_midi_connected() { instruments_.post_connect(DRUMS); }
     void on_midi_disconnected() { instruments_.post_disconnect(DRUMS); }

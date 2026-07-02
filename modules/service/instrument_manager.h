@@ -84,6 +84,11 @@ class InstrumentManager {
     void init_queue();
     void service_once();
 
+    // The core0 instrument hot-plug owner task body (was instrument_task in main.cpp).
+    // Loops on service_once(), which parks on the event queue until a hot-plug event
+    // arrives. Never returns.
+    void run();
+
    private:
     static constexpr std::size_t kInstrumentCount = std::to_underlying(N_INSTRUMENTS);
     static constexpr std::memory_order kRlx = std::memory_order_relaxed;

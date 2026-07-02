@@ -47,6 +47,7 @@
 #include "midi.h"
 #include "orb_debug.h"
 #include "orb_log.h"
+#include "osal/task.hpp"  // orb::osal::sleep_for
 
 // instrument_manager.h (which pulls in xbox_one_protocol.h), packet_queue.h and
 // xbox_one_protocol.h are all C++ headers now (init_packet, xbox_fifo_write, the
@@ -241,6 +242,16 @@ void ORB_FAST(DrumEngine::tick)() {
         init_packet(&input_pkt_, now, sizeof(xb_one_drum_input_pkt_t));
         txfifo_.write(input_pkt_);
         changed_ = false;
+    }
+}
+
+// The core0 drum-input task body (was drum_input_task in main.cpp): drains the USB-MIDI
+// note queue + serial MIDI, ages out hits, and writes drum packets to the device fifo at a
+// ~2ms cadence matching the drum trigger/output timing. Never returns.
+void DrumEngine::run() {
+    while (true) {
+        tick();
+        orb::osal::sleep_for(std::chrono::milliseconds(2));
     }
 }
 

@@ -7,6 +7,7 @@
 #include "osal/task.hpp"
 
 #include "app_tasks.h"
+#include "system.hpp"  // orb::app::system() -- reaches the owning objects whose run() we register
 
 // core affinity masks (bit N = core N). core1 runs ONLY the PIO-USB host task so its
 // bit timing sees ~no context switches; every other task is pinned to core0.
@@ -33,13 +34,17 @@ static orb::osal::Task<kInstrumentStackWords> s_instrument_task;
 static orb::osal::Task<kHousekeepingStackWords> s_housekeeping_task;
 
 extern "C" void app_start_tasks(void) {
-    s_usb_host_task.start("usb_host", usb_host_task, nullptr, kUsbTaskPriority, kCore1Affinity);
-    s_usb_device_task.start("usb_dev", usb_device_task, nullptr, kUsbTaskPriority, kCore0Affinity);
-    s_drum_input_task.start("drum_in", drum_input_task, nullptr, kInputPriority, kCore0Affinity);
+    s_usb_host_task.start<orb::app::HostController, &orb::app::HostController::run>(
+        "usb_host", orb::app::system().host_controller(), kUsbTaskPriority, kCore1Affinity);
+    s_usb_device_task.start<orb::app::DeviceSession, &orb::app::DeviceSession::run>(
+        "usb_dev", orb::app::system().device_session(), kUsbTaskPriority, kCore0Affinity);
+    s_drum_input_task.start<orb::service::DrumEngine, &orb::service::DrumEngine::run>(
+        "drum_in", orb::app::system().drums(), kInputPriority, kCore0Affinity);
     // Instrument hot-plug applier. Same priority as drum input (both core0, event-driven and
     // mostly parked); it drains the instrument event queue posted by the USB mount/umount
     // callbacks. Pinned to core0 so no feature logic runs on the PIO-USB host core.
-    s_instrument_task.start("instr", instrument_task, nullptr, kInputPriority, kCore0Affinity);
-    s_housekeeping_task.start("housekeep", housekeeping_task, nullptr, kHousekeepingPriority,
-                              kCore0Affinity);
+    s_instrument_task.start<orb::service::InstrumentManager, &orb::service::InstrumentManager::run>(
+        "instr", orb::app::system().instruments(), kInputPriority, kCore0Affinity);
+    s_housekeeping_task.start<orb::app::Housekeeping, &orb::app::Housekeeping::run>(
+        "housekeep", orb::app::system().housekeeping(), kHousekeepingPriority, kCore0Affinity);
 }

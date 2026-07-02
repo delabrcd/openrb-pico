@@ -16,6 +16,7 @@ target_sources(orb_app INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/app_tasks.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/device_session.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/freertos_hooks.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/housekeeping.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/recovery.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/system.cpp)
 target_include_directories(orb_app INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})

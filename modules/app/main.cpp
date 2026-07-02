@@ -4,7 +4,6 @@
 #include <pico/multicore.h>
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -19,13 +18,10 @@
 
 #include "core/section.hpp"
 #include "hal/platform.hpp"
-#include "osal/task.hpp"
 
 #include "adapter.h"
 #include "app_queues.h"
 #include "adapter_ctx.h"
-#include "dlog.h"
-#include "drums.h"
 #include "hardware/structs/vreg_and_chip_reset.h"
 #include "hardware/structs/watchdog.h"
 #include "hardware/timer.h"
@@ -34,7 +30,6 @@
 #include "midi.h"
 #include "orb_bsp.h"
 #include "orb_log.h"
-#include "usb_log.h"
 // packet_queue.h is a C++ header now (plain C++ free functions). The xbox device driver
 // seam (xboxd_* / the weak *_cb hooks) moved to modules/app/device_session.cpp along with
 // the device-RX state machine that implements it; the host-side counterpart
@@ -81,18 +76,6 @@ void ORB_FAST(tusb_time_delay_ms_api)(uint32_t ms) {
     }
 }
 
-
-// USB host task. Pinned to core1 and the ONLY task that runs there, so the
-// PIO-USB bit-banged signalling sees ~no FreeRTOS context switches. The SMP
-// scheduler launches core1 itself in vTaskStartScheduler(), so there is no more
-// multicore_launch_core1()/launch_core1_robust() (and thus no early-launch FIFO
-// handshake race -- ROOT CAUSE #1 is now owned by the FreeRTOS port). Body now lives in
-// orb::app::HostController::run() (modules/app/host_controller.cpp) -- this is a thin
-// trampoline so app_tasks.cpp's task registration stays unchanged.
-void usb_host_task(void *param) {
-    (void)param;
-    orb::app::system().host_controller().run();
-}
 
 static void init() {
     // 120 MHz (no overclock): with upstream Pico-PIO-USB (post-0.7.2 bus-turnaround
@@ -167,51 +150,6 @@ static void init() {
 
     orb::service::adapter().set_state(adapter_state_t::STATE_INIT);
     LOG_INFO(CAT_SYS, "finished init, starting main process...");
-}
-
-// ---- core0 per-concern tasks (all pinned to core0; see app_tasks.cpp) -----------
-
-// USB device stack + the send drain. Body now lives in orb::app::DeviceSession::run()
-// (modules/app/device_session.cpp) -- this is a thin trampoline so app_tasks.cpp's task
-// registration stays unchanged.
-void usb_device_task(void *param) {
-    (void)param;
-    orb::app::system().device_session().run();
-}
-
-// Instrument input: drains the USB-MIDI note queue (filled on core1) + serial MIDI,
-// ages out hits, and writes drum packets to the device fifo. ~2ms cadence matches the
-// drum trigger/output timing.
-void drum_input_task(void *param) {
-    (void)param;
-    while (true) {
-        drum_task();
-        orb::osal::sleep_for(std::chrono::milliseconds(2));
-    }
-}
-
-// Instrument hot-plug owner (core0): the ONLY mutator of the connection state and the only
-// place the add/drop packet is built + queued to the device. Blocks on the instrument event
-// queue, so it costs nothing until a guitar/drum mounts or umounts. Keeping this off core1
-// is the whole point -- the producers (USB umount callbacks) just post and return.
-void instrument_task(void *param) {
-    (void)param;
-    while (true) {
-        instrument_manager_service();  // parks until an event arrives, then applies it
-    }
-}
-
-// Low-priority periodic background: controller-announce heartbeat (gated to STATE_INIT,
-// fires ~every 2s internally), warm-reset zombie recovery, and draining the deferred
-// log to UART/USB. Grouped because all three are coarse periodic chores.
-void housekeeping_task(void *param) {
-    (void)param;
-    while (true) {
-        orb::app::system().device_session().announce();
-        orb::app::system().reboot_recovery().service();
-        dlog_drain();
-        orb::osal::sleep_for(std::chrono::milliseconds(5));
-    }
 }
 
 int main() {

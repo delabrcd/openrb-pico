@@ -29,6 +29,7 @@
 #include "drums.h"           // orb::service::DrumEngine
 #include "guitar.h"          // orb::service::GuitarHost
 #include "host_controller.hpp"  // orb::app::HostController
+#include "housekeeping.hpp"  // orb::app::Housekeeping
 #include "instrument_manager.h"  // orb::service::InstrumentManager, InstrumentEvent
 #include "midi.h"            // orb::service::SerialMidi
 #include "osal/queue.hpp"    // orb::osal::Queue
@@ -47,7 +48,8 @@ class System {
           guitars_(tx_fifo_, instruments_),
           reboot_recovery_(adapter_, recovery_state_),
           host_controller_(adapter_, tx_fifo_, host_tx_q_, recovery_state_, actuators_),
-          device_session_(adapter_, tx_fifo_, host_tx_q_, actuators_, instruments_) {}
+          device_session_(adapter_, tx_fifo_, host_tx_q_, actuators_, instruments_),
+          housekeeping_(device_session_, reboot_recovery_) {}
 
     System(const System&) = delete;
     System& operator=(const System&) = delete;
@@ -67,6 +69,7 @@ class System {
     RebootRecovery& reboot_recovery() { return reboot_recovery_; }
     HostController& host_controller() { return host_controller_; }
     DeviceSession& device_session() { return device_session_; }
+    Housekeeping& housekeeping() { return housekeeping_; }
 
    private:
     // Members (leaves -> services -> app/orchestration). Declaration order IS construction
@@ -93,6 +96,9 @@ class System {
     // Must come after adapter_/tx_fifo_/host_tx_q_/actuators_/instruments_ (stores
     // references to all five).
     DeviceSession device_session_;
+    // Must come last: constructed after device_session_ and reboot_recovery_ (stores
+    // references to both).
+    Housekeeping housekeeping_;
 };
 
 // The single composition-root instance (defined in system.cpp).
