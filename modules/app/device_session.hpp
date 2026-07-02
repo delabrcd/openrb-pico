@@ -63,9 +63,15 @@ class DeviceSession {
     orb::service::InstrumentManager& instruments_;
 
     // Device-side scratch packet: built by the core0 device-RX handlers (auth / identify /
-    // running / announce) before being copied into the cross-core TX fifo -- core0 ONLY
-    // (was main.cpp's file-static out_packet).
+    // running) before being copied into the cross-core TX fifo -- touched ONLY by the USB
+    // device task (was main.cpp's file-static out_packet).
     XboxPacket out_packet_;
+
+    // Separate scratch for the announce heartbeat. announce() is driven from the housekeeping
+    // task, a DIFFERENT core0 task than run()/the RX handlers, so it gets its own buffer rather
+    // than sharing out_packet_ -- no cross-task interleaving on a single packet, even though the
+    // task priorities happen to preclude a mid-build preemption today.
+    XboxPacket announce_packet_;
 
     // handle_identify's former function-static local -- now a core0-only member.
     std::uint8_t identify_sequence_ = 0;

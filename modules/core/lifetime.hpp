@@ -12,8 +12,10 @@
 // back to the canonical polyfill: std::memmove(p, p, sizeof(T)) implicitly creates a T in
 // the destination bytes (P0593) and std::launder yields a pointer to that new object. GCC
 // recognises the self-move of constant size and elides it, so at -O2 the accessor compiles
-// to nothing (verified: a plain ldrb/strb on the buffer, identical to the old union). Drop
-// the polyfill once libstdc++ ships the real thing.
+// to nothing (verified: a plain ldrb/strb on the buffer, identical to the old union). The
+// const overload does NOT memmove: a read-only view must not store back through a const (or
+// ROM) pointer, and the T was already implicitly created by whatever filled the buffer, so it
+// just launders a const pointer to it. Drop the polyfill once libstdc++ ships the real thing.
 
 #include <version>
 
@@ -32,10 +34,13 @@ template <typename T>
 }
 template <typename T>
 [[gnu::always_inline]] inline const T *start_lifetime_as(const void *p) noexcept {
-    // memmove needs a mutable dst; the self-move doesn't modify anything, so casting away
-    // const to start the object's lifetime and handing back a const view is sound.
-    return std::launder(
-        static_cast<const T *>(std::memmove(const_cast<void *>(p), p, sizeof(T))));
+    // A const view only READS the bytes and must never write them (a const_cast + memmove
+    // "self-move" would store back through the const pointer -- harmless for RAM, but UB for
+    // genuinely const/ROM-resident storage). Whatever produced these bytes -- the mutable
+    // start_lifetime_as, or the memcpy/DMA that filled the buffer -- already implicitly created
+    // the implicit-lifetime T at p, so a const view just launders a pointer to it. Zero store,
+    // zero-cost (launder is codegen-free).
+    return std::launder(reinterpret_cast<const T *>(p));
 }
 }  // namespace orb::mem
 #endif

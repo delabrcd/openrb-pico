@@ -212,6 +212,14 @@ typedef struct {
 // with tu_memclr. So the data members carry NO in-class initializers -- callers zero/fill
 // explicitly (data()/wire() + memset, or `= {}`), exactly as the old aggregate required.
 class XboxPacket {
+    // The 64-byte wire payload, declared FIRST and alignas(4). Two guarantees fall out:
+    //   * data() (== &wire_[0]) is at object offset 0, so a stray `&packet` and packet.data()
+    //     coincide -- defends against the class of relay bug where the raw object address (not
+    //     the wire buffer) was handed to the USB send.
+    //   * the buffer is word-aligned, matching the CFG_TUSB_MEM_ALIGN on the epin_buf/epout_buf
+    //     that embed this packet, so the USB DMA copy lands on an aligned address.
+    alignas(4) std::array<std::uint8_t, XBOX_ONE_EP_MAXPKTSIZE> wire_;
+
    public:
     // --- typed views over the wire payload (all alias the same leading bytes) ------------
     frame_t &frame() { return view<frame_t>(); }
@@ -259,8 +267,6 @@ class XboxPacket {
     const T &view() const {
         return *orb::mem::start_lifetime_as<T>(wire_.data());
     }
-
-    std::array<std::uint8_t, XBOX_ONE_EP_MAXPKTSIZE> wire_;
 };
 
 // The wire payload is exactly one endpoint packet; the bookkeeping tail (length /
@@ -271,6 +277,9 @@ static_assert(std::is_trivially_copyable_v<XboxPacket>,
               "XboxPacket moves by memcpy through the tx fifo / OSAL queues");
 static_assert(std::is_trivially_default_constructible_v<XboxPacket>,
               "TinyUSB tu_memclr's the driver structs that embed XboxPacket");
+static_assert(alignof(XboxPacket) >= 4,
+              "XboxPacket must be >=4-byte aligned so data() is word-aligned for the USB DMA "
+              "copy inside the CFG_TUSB_MEM_ALIGN epin_buf/epout_buf that embed it");
 
 // --- Packet builders --------------------------------------------------------------------
 // `static inline` factories that construct the exact same bytes as the designated-initializer

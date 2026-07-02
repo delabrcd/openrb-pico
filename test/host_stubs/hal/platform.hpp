@@ -16,6 +16,7 @@
  */
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstddef>
 #include <span>
@@ -24,12 +25,22 @@
 
 namespace orb::hal {
 
-// Stub clock: now_us() returns the controllable fake counter set by the test.
-// Satisfies hal::MonotonicClock + hal::BusyDelay (delay ops are no-ops on host).
+// Stub clock mirroring the real orb::hal::Clock chrono surface (see
+// modules/platform/pico/clock.hpp): a monotonic clock with a 32-bit microsecond rep.
+// now() reads the controllable fake counter set by the test, so a test can pin the
+// timestamp written into XboxPacket::triggered_time and assert it deterministically.
+// Satisfies hal::MonotonicClock + hal::BusyDelay (delay is a no-op on host).
 struct Clock {
-    uint32_t now_us() const { return g_host_fake_us; }
-    void delay_us(uint32_t) const {}
-    void delay_ms(uint32_t) const {}
+    using rep = std::uint32_t;
+    using period = std::micro;
+    using duration = std::chrono::duration<rep, period>;
+    using time_point = std::chrono::time_point<Clock, duration>;
+    static constexpr bool is_steady = true;
+
+    time_point now() const { return time_point{duration{g_host_fake_us}}; }
+
+    template <typename Rep, typename Period>
+    void delay(std::chrono::duration<Rep, Period>) const {}
 };
 
 // Minimal stubs for the remaining hal types — not used by the protocol TU but present

@@ -46,6 +46,7 @@ DeviceSession::DeviceSession(orb::service::AdapterState& adapter,
       actuators_(actuators),
       instruments_(instruments) {
     std::ranges::fill(out_packet_.wire(), std::uint8_t{0});
+    std::ranges::fill(announce_packet_.wire(), std::uint8_t{0});
 }
 
 // ---- DeviceSession method bodies (moved verbatim from main.cpp) -----------------------
@@ -165,8 +166,8 @@ void DeviceSession::announce() {
     if (std::chrono::milliseconds(board_millis() - last_announce_time_) > orb::service::announce_interval) {
         if (adapter_.controller_idx() < UINT8_MAX) {
             LOG_INFO(CAT_DEV, "ANNOUNCING");
-            identifiers_get_announce(&out_packet_);
-            tx_fifo_.write(out_packet_);
+            identifiers_get_announce(&announce_packet_);
+            tx_fifo_.write(announce_packet_);
             last_announce_time_ = board_millis();
         }
     }

@@ -36,6 +36,7 @@
 #include "timers.h"
 
 #include "chrono.hpp"
+#include "core/section.hpp"  // ORB_FAST (RAM placement for the callback trampoline)
 
 namespace orb::osal {
 
@@ -82,9 +83,11 @@ class Timer {
 
    private:
     // The sole place the FreeRTOS timer-callback ABI + void* id are handled: recover the typed
-    // object from the timer id and dispatch to its member. Never propagates outward.
+    // object from the timer id and dispatch to its member. Never propagates outward. RAM-placed
+    // (ORB_FAST) so a member-fn timer callback is flash-stall-free and the whole leaf chain is
+    // RAM-resident, matching the free-function ORB_FAST callbacks it replaced.
     template <typename T, void (T::*Method)()>
-    static void trampoline(TimerHandle_t handle) {
+    static void ORB_FAST(trampoline)(TimerHandle_t handle) {
         (static_cast<T *>(pvTimerGetTimerID(handle))->*Method)();
     }
 

@@ -5,9 +5,14 @@
  * no-op log stubs + a fake board_millis(), and assert the exact bytes the protocol emits.
  *
  * Golden vectors below were derived by hand from the packed wire structs in
- * inc/xbox_one_protocol.h and cross-checked against the implementation. The sizeof()
- * sanity checks guard the layout assumptions the golden offsets depend on; if a struct
- * grows/shifts, those fail first and pinpoint the golden vector that needs updating.
+ * modules/protocol/xbox_one_protocol.h and cross-checked against the implementation. The
+ * sizeof() sanity checks guard the layout assumptions the golden offsets depend on; if a
+ * struct grows/shifts, those fail first and pinpoint the golden vector that needs updating.
+ *
+ * The wire packet is the XboxPacket class: its 64-byte wire payload is reached with data()
+ * (raw bytes) or the typed view accessors (frame(), controller_input(), guitar_input(), ...),
+ * and its bookkeeping (length/triggered_time/handled) is public. triggered_time is a
+ * Clock::duration (microseconds), stamped from Clock::now() -- pinned via g_host_fake_us.
  *
  * Sequence note: get_sequence() is a process-global post-increment counter shared across
  * the whole binary, so absolute sequence bytes are not hardcoded. Each test that triggers
@@ -49,8 +54,12 @@ TEST_CASE("wire struct sizes match the documented layout") {
     CHECK(sizeof(xb_one_wireless_legacy_adapter_pkt_t) == 8);
     CHECK(sizeof(xb_one_drum_input_pkt_t) == 20);
     CHECK(sizeof(xb_one_guitar_input_pkt_t) == 20);
-    // The leading anonymous union is exactly one max USB endpoint packet.
-    CHECK(offsetof(xbox_packet_t, length) == XBOX_ONE_EP_MAXPKTSIZE);
+    // The wire payload is exactly one max USB endpoint packet; bookkeeping follows it.
+    XboxPacket pkt{};
+    CHECK(XboxPacket::capacity() == XBOX_ONE_EP_MAXPKTSIZE);
+    CHECK(pkt.wire().size() == XBOX_ONE_EP_MAXPKTSIZE);
+    // data() must be >=4-byte aligned so the USB DMA copy hits a word-aligned address.
+    CHECK(alignof(XboxPacket) >= 4);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -70,7 +79,7 @@ TEST_CASE("get_sequence is a wrapping post-increment counter") {
 }
 
 TEST_CASE("xboxp_get_size returns length, 0 on null") {
-    xbox_packet_t pkt{};
+    XboxPacket pkt{};
     pkt.length = 0x2A;
     CHECK(xboxp_get_size(&pkt) == 0x2A);
     CHECK(xboxp_get_size(nullptr) == 0);
@@ -80,16 +89,17 @@ TEST_CASE("xboxp_get_size returns length, 0 on null") {
 // init_packet
 // ---------------------------------------------------------------------------------------
 TEST_CASE("init_packet stamps length/time/handled and advances sequence") {
-    xbox_packet_t pkt{};
+    XboxPacket pkt{};
     pkt.handled = 0xFF;  // must be cleared
 
     uint8_t seq_before = get_sequence();
-    init_packet(&pkt, 0xDEADBEEF, 0x14);
+    const orb::hal::Clock::time_point t{orb::hal::Clock::duration{0xDEADBEEFu}};
+    init_packet(&pkt, t, 0x14);
 
     CHECK(pkt.length == 0x14);
-    CHECK(pkt.triggered_time == 0xDEADBEEF);
+    CHECK(pkt.triggered_time == orb::hal::Clock::duration{0xDEADBEEFu});
     CHECK(pkt.handled == 0);
-    CHECK(pkt.frame.sequence == static_cast<uint8_t>(seq_before + 1));
+    CHECK(pkt.frame().sequence == static_cast<uint8_t>(seq_before + 1));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -101,15 +111,15 @@ TEST_CASE("make_power_report golden bytes") {
             /*sequence=*/0x42, /*data=*/static_cast<uint8_t>(power_mode_e::POWER_OFF) /*0x04*/);
 
     const std::array<uint8_t, 5> golden = {0x05, 0x20, 0x42, 0x01, 0x04};
-    check_bytes(pr.buffer, golden.data(), golden.size());
+    check_bytes(reinterpret_cast<const uint8_t*>(&pr), golden.data(), golden.size());
 
-    // Field-level cross-check.
-    CHECK(pr.data.frame.command == frame_command_e::CMD_POWER_MODE);
-    CHECK(pr.data.frame.type == frame_type_e::TYPE_REQUEST);
-    CHECK(pr.data.frame.device_id == 0);
-    CHECK(pr.data.frame.sequence == 0x42);
-    CHECK(pr.data.frame.length == 1);
-    CHECK(pr.data.data == static_cast<uint8_t>(power_mode_e::POWER_OFF));
+    // Field-level cross-check. power_report_t is now a plain struct {frame_t frame; uint8_t data;}.
+    CHECK(pr.frame.command == frame_command_e::CMD_POWER_MODE);
+    CHECK(pr.frame.type == frame_type_e::TYPE_REQUEST);
+    CHECK(pr.frame.device_id == 0);
+    CHECK(pr.frame.sequence == 0x42);
+    CHECK(pr.frame.length == 1);
+    CHECK(pr.data == static_cast<uint8_t>(power_mode_e::POWER_OFF));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -138,15 +148,15 @@ TEST_CASE("make_led_mode_command golden bytes") {
 // ---------------------------------------------------------------------------------------
 TEST_CASE("fill_drum_input_from_controller golden bytes") {
     // Build a known controller-input source packet by field name.
-    xbox_packet_t in{};
-    in.controller_input.frame.command = frame_command_e::CMD_INPUT;  // 0x20
-    in.controller_input.frame.device_id = 0;
-    in.controller_input.buttons.start = 1;
-    in.controller_input.buttons.select = 1;
-    in.controller_input.buttons.coloredButtonState = 0x05;  // 0101
-    in.controller_input.buttons.dpadState = 0x0A;           // 1010
+    XboxPacket in{};
+    in.controller_input().frame.command = frame_command_e::CMD_INPUT;  // 0x20
+    in.controller_input().frame.device_id = 0;
+    in.controller_input().buttons.start = 1;
+    in.controller_input().buttons.select = 1;
+    in.controller_input().buttons.coloredButtonState = 0x05;  // 0101
+    in.controller_input().buttons.dpadState = 0x0A;           // 1010
 
-    xbox_packet_t out{};
+    XboxPacket out{};
     const uint8_t player_id = 0x03;
 
     uint8_t seq_before = get_sequence();
@@ -169,11 +179,11 @@ TEST_CASE("fill_drum_input_from_controller golden bytes") {
                                       0x00, 0x00, 0x00, 0x00};
     golden[2] = static_cast<uint8_t>(seq_before + 1);
 
-    check_bytes(out.buffer, golden.data(), golden.size());
+    check_bytes(out.data(), golden.data(), golden.size());
 
     // Bookkeeping field cross-checks.
     CHECK(out.length == sizeof(xb_one_drum_input_pkt_t));
-    CHECK(out.triggered_time == 0);
+    CHECK(out.triggered_time == orb::hal::Clock::duration::zero());
     CHECK(out.handled == 0);
 }
 
@@ -182,8 +192,8 @@ TEST_CASE("fill_drum_input_from_controller golden bytes") {
 // ---------------------------------------------------------------------------------------
 TEST_CASE("fill_guitar_input_from_hid_report golden bytes") {
     // Pin the fake clock so triggered_time is assertable.
-    // now_us() returns g_host_fake_us; triggered_time = now_us() / 1000.
-    // Use 0x12345u ms -> 0x12345u * 1000 us = 74565000 us (fits in uint32_t).
+    // now() returns time_point{duration{g_host_fake_us}}; triggered_time (a Clock::duration in
+    // microseconds) == that count. Use 0x12345u * 1000 us = 74565000 us (fits in uint32_t).
     g_host_fake_us = 0x12345u * 1000u;
 
     // Raw 7-byte PDP/legacy guitar HID report.
@@ -196,7 +206,7 @@ TEST_CASE("fill_guitar_input_from_hid_report golden bytes") {
     //  byte6 tilt_bits    = 0xFF -> >128, forces selectButton high
     const std::array<uint8_t, 7> report = {0x00, 0x95, 0x00, 0x04, 0x7F, 0x00, 0xFF};
 
-    xbox_packet_t out{};
+    XboxPacket out{};
     const uint8_t player_id = 0x02;
 
     uint8_t seq_before = get_sequence();
@@ -222,10 +232,10 @@ TEST_CASE("fill_guitar_input_from_hid_report golden bytes") {
                                       0x00, 0x00, 0x00, 0x00};
     golden[2] = static_cast<uint8_t>(seq_before + 1);
 
-    check_bytes(out.buffer, golden.data(), golden.size());
+    check_bytes(out.data(), golden.data(), golden.size());
 
     CHECK(out.length == sizeof(xb_one_guitar_input_pkt_t));
-    CHECK(out.triggered_time == 0x12345u);  // g_host_fake_us / 1000
+    CHECK(out.triggered_time == orb::hal::Clock::duration{0x12345u * 1000u});  // == g_host_fake_us
     CHECK(out.handled == 0);
 }
 
@@ -239,17 +249,17 @@ TEST_CASE("fill_guitar_input_from_hid_report strum-center / select-from-report")
     //  byte6 tilt = 0x10 (< 128) -> no tilt-forced select
     const std::array<uint8_t, 7> report = {0x00, 0x42, 0x00, 0x08, 0x20, 0x00, 0x10};
 
-    xbox_packet_t out{};
+    XboxPacket out{};
     fill_guitar_input_from_hid_report(report.data(), &out, /*player_id=*/0x01);
 
     // colored = blue<<2|green|red<<1|yellow<<3 = 0|0|0x2|0 = 0x02.
-    CHECK(out.guitar_input.wla_header.coloredButtonState1 == 0x02);
-    CHECK(out.guitar_input.coloredButtonState2 == 0x02);
-    CHECK(out.guitar_input.dpadState2 == 0);            // strum center
-    CHECK(out.guitar_input.wla_header.dpadState1 == 0);
-    CHECK(out.guitar_input.selectButton == 1);          // from report select bit
-    CHECK(out.guitar_input.startButton == 0);
-    CHECK(out.guitar_input.orangeButton == 0);
-    CHECK(out.guitar_input.whammy == 0x20);
-    CHECK(out.guitar_input.wla_header.playerId == 0x01);
+    CHECK(out.guitar_input().wla_header.coloredButtonState1 == 0x02);
+    CHECK(out.guitar_input().coloredButtonState2 == 0x02);
+    CHECK(out.guitar_input().dpadState2 == 0);            // strum center
+    CHECK(out.guitar_input().wla_header.dpadState1 == 0);
+    CHECK(out.guitar_input().selectButton == 1);          // from report select bit
+    CHECK(out.guitar_input().startButton == 0);
+    CHECK(out.guitar_input().orangeButton == 0);
+    CHECK(out.guitar_input().whammy == 0x20);
+    CHECK(out.guitar_input().wla_header.playerId == 0x01);
 }

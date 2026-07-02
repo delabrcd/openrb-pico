@@ -95,7 +95,7 @@ std::optional<std::array<std::uint8_t, 3>> ORB_FAST(SerialMidi::read)() {
     return std::nullopt;
 }
 
-void SerialMidi::on_disconnect_timeout() {
+void ORB_FAST(SerialMidi::on_disconnect_timeout)() {
     if (drums_connected_.load(std::memory_order_relaxed)) {
         instruments_.post_disconnect(DRUMS);
         drums_connected_.store(false, std::memory_order_relaxed);
