@@ -73,6 +73,8 @@ A healthy boot ends with the Xbox One handshake flowing — `IN (CMD_POWER_MODE)
 
 Board targets are `CUSTOM_REV_0_1` (default) and `FEATHER`. Override the default for
 flash/reset via the `ORB_BOARD` env var or a positional arg: `scripts/flash.sh FEATHER`.
+For a from-scratch Feather RP2040 (USB host) bring-up — pinout, UF2/BOOTSEL flashing,
+wiring — see [`docs/feather-usb-host.md`](docs/feather-usb-host.md).
 
 ## Scripts
 
