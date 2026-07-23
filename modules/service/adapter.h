@@ -19,8 +19,8 @@ namespace orb::service {
 // Re-announce cadence and the input/timing thresholds.
 inline constexpr std::chrono::milliseconds announce_interval{2000};
 inline constexpr std::uint8_t velocity_thresh = 10;
-inline constexpr std::chrono::milliseconds trigger_hold{40};
-inline constexpr std::chrono::milliseconds on_delay{20};
+inline constexpr std::chrono::milliseconds trigger_hold{15};
+inline constexpr std::chrono::milliseconds on_delay{5};
 
 // USB endpoint-direction bits (bit 7 of bEndpointAddress).
 inline constexpr std::uint8_t endpoint_dir_out = 0x00;
