@@ -1,8 +1,9 @@
 {
     "name": "openrb-pico",
-    "build": {
-        "dockerfile": "Dockerfile"
-    },
+    // Prebuilt dev image published by .github/workflows/devcontainer-image.yml. Pulls
+    // instead of building locally; to iterate on the Dockerfile itself, temporarily
+    // swap this for `"build": { "dockerfile": "Dockerfile" }`.
+    "image": "ghcr.io/delabrcd/openrb-pico-dev:latest",
     "customizations": {
         "vscode": {
             "extensions": [

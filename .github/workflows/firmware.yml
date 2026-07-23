@@ -1,0 +1,73 @@
+name: firmware
+
+# Builds the RP2040 firmware with logging compiled out (the `release` CMake preset:
+# ORB_DEBUG=OFF, ORB_LOG_LEVEL=WARN -> orb_debug.h forces the log floor to NONE and
+# drops every LOG_* + magic_enum reflection). Both board targets are built.
+#
+# The build runs INSIDE the prebuilt dev-container image from GHCR (published by
+# devcontainer-image.yml), so CI uses the exact same pinned arm-none-eabi 15.2.rel1
+# toolchain as local Docker builds -- no toolchain install here, no version drift.
+#
+#   - push to main / PR  -> build + upload artifacts (CI gate)
+#   - push a tag `v*`    -> build + create a GitHub Release with the .uf2/.elf/.bin
+#   - manual dispatch    -> build + upload artifacts
+#
+# Cut a release with:  git tag v1.2.3 && git push origin v1.2.3
+#
+# Prerequisite: the dev image must exist in GHCR first -- run devcontainer-image.yml
+# once (it auto-runs when the Dockerfile changes, or trigger it manually).
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create releases on tag builds
+  packages: read    # pull the dev image from GHCR
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/openrb-pico-dev:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (release preset -- logging compiled out)
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build build-release -j"$(nproc)"
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp build-release/openrb-pico_*.uf2 dist/
+          cp build-release/openrb-pico_*.elf dist/
+          cp build-release/openrb-pico_*.bin dist/
+          ls -l dist/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrb-pico-firmware
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
