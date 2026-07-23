@@ -6,20 +6,16 @@ Quick reference for working on the RP2040 firmware. Everything runs in Docker vi
 [`scripts/`](scripts/) wrap the compose commands — prefer them over driving compose or
 `openocd` by hand.
 
-- **Current architecture / handoff** — the firmware is now a **FreeRTOS SMP** build
+- **Current architecture** — the layered C++23 design + the **FreeRTOS-SMP** runtime model
   (core1 = the sole PIO-USB host task; core0 = USB-device + feature tasks):
-  [`docs/FREERTOS-PORT.md`](docs/FREERTOS-PORT.md). Read this first;
-  it and `DEBUGGING.md` carry the detail.
+  [`docs/architecture.md`](docs/architecture.md). Read this first.
 - On-target debugging — the persistent `dbgd` daemon, **dual-core backtraces**, and
   FreeRTOS thread awareness: [`docs/DEBUGGING.md`](docs/DEBUGGING.md).
-- Deep porting writeup (core1 race, the original clock/PIO-USB work): [`PORTING.md`](PORTING.md).
-  Pre-FreeRTOS history — the firmware runs at **120 MHz** (unchanged by the FreeRTOS port).
-- Why the submodule patches / clock exist, and the **hardware testing caveats**:
-  [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md) — read this before trusting
-  any enumeration A/B result.
-- How the controller is brought back after it wedges or a warm reset (runtime hub-reset
-  recovery without a reboot, with heartbeat-keyed auto-reboot as last resort, and why
-  it's a hardware limitation): [`docs/warm-reset-recovery.md`](docs/warm-reset-recovery.md).
+- Design history (the core1 race, the 240 → 120 MHz decision, the FreeRTOS-SMP move) and
+  the warm-reset / hub-wedge recovery rationale live on the
+  [wiki](https://github.com/delabrcd/openrb-pico/wiki/Design-History). The deep
+  clock/patch investigation and **hardware testing caveats** are in the parent monorepo's
+  `../docs/usb-stack-saga.md` — read that before trusting any enumeration A/B result.
 
 ## Prerequisites
 
@@ -105,7 +101,7 @@ ORB_BUILD_DIR=build-debug scripts/gdb.sh tasks   # debug-symbol-rich backtraces
   and forth. The default `build/`, `flash.sh`, and `gdb.sh` are unchanged; the debug
   tree is purely opt-in via the `debug` arg / `ORB_BUILD_DIR` env.
 - `ORB_DEBUG_BUILD=ON` adds `-Og -g3 -fno-omit-frame-pointer -funwind-tables
-  -fasynchronous-unwind-tables` to the **project's own sources only** (`src/*`, via the
+  -fasynchronous-unwind-tables` to the **project's own sources only** (`modules/*`, via the
   `add_board_target` targets in [`cmake/AddBoardTarget.cmake`](cmake/AddBoardTarget.cmake)).
   The SDK / TinyUSB / FreeRTOS libraries stay at their default optimization — this keeps
   the build fast and the blast radius small; we rarely need to unwind through them.
@@ -128,7 +124,7 @@ from flash during the op, which fights the timing-critical PIO-USB host. Writing
 USB drive never touches XIP, so that whole hazard is gone. (See the git history /
 `docs/usb-stack-saga.md` for the QSPI saga.)
 
-How it works (`src/usb_log.c`, FatFs sourced from the **vendored** TinyUSB at
+How it works (`modules/log/usb_log.cpp`, FatFs sourced from the **vendored** TinyUSB at
 `external/tinyusb` — `PICO_TINYUSB_PATH/lib/fatfs/source`, the `FATFS_DIR` in
 [`CMakeLists.txt`](CMakeLists.txt), *not* pico-sdk's bundled tinyusb):
 

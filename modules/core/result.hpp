@@ -1,6 +1,6 @@
 /*
  * Result<T, E> — a tiny, no-heap, no-exceptions "errors as values" type for the
- * firmware's C++ layer (see docs/features/cpp-overhaul.md).
+ * firmware's C++ layer (see docs/architecture.md).
  *
  * Why this exists instead of C++ exceptions: GCC's bare-metal ARM unwinder is not
  * thread-safe, and under FreeRTOS SMP two cores can throw at the same instant

@@ -2,9 +2,9 @@
 
 Conventions any human or agent working in this repo must follow. This is the short,
 enforceable list; the deep rationale lives in
-[`docs/architecture/modern-cpp.md`](docs/architecture/modern-cpp.md) (authoritative
-architecture), [`BUILDING.md`](BUILDING.md), [`PORTING.md`](PORTING.md), and
-[`docs/FREERTOS-PORT.md`](docs/FREERTOS-PORT.md).
+[`docs/architecture.md`](docs/architecture.md) (authoritative architecture + the
+FreeRTOS-SMP runtime model) and [`BUILDING.md`](BUILDING.md). Porting/design history is on
+the [wiki](https://github.com/delabrcd/openrb-pico/wiki/Design-History).
 
 ## Target architecture — static dependency injection
 

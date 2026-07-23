@@ -11,7 +11,7 @@
  * build, set those two config options to 0 and drop this file from the build.
  *
  * The FreeRTOS kernel calls these by C symbol, so they are the vendor/RTOS seam and
- * stay extern "C" free functions (modern-cpp.md principle 5).
+ * stay extern "C" free functions (docs/architecture.md principle 5).
  */
 
 #include "FreeRTOS.h"

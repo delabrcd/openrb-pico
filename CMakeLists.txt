@@ -34,7 +34,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # a separate build-debug/ tree with this ON so the optimized build/ keeps coexisting.
 option(ORB_DEBUG_BUILD "Build the project's own sources with -Og + full unwind info for debugging" OFF)
 
-# --- Feature-gate build profiles (see docs/architecture/modern-cpp.md, BUCKET B) ------
+# --- Feature-gate build profiles (see docs/architecture.md, BUCKET B) ------
 # These four knobs were hard-coded as preprocessor #defines in the headers. They REMAIN
 # preprocessor macros on purpose -- each is consumed in `#if` and gates whole #includes /
 # declarations (magic_enum in orb_enum.hpp, get_command_name in xbox_one_protocol.h, the
@@ -140,7 +140,7 @@ set_source_files_properties(${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c ${FATFS_D
 
 # The layered module tree. Each modules/<layer>/CMakeLists.txt defines one INTERFACE
 # target whose target_link_libraries point ONLY at the layers below it -- those edges ARE
-# the architecture made physical (docs/architecture/modern-cpp.md). Added bottom-up;
+# the architecture made physical (docs/architecture.md). Added bottom-up;
 # orb_app aggregates the whole graph, so each executable links just orb_app and the whole
 # firmware funnels in (the pico-sdk/TinyUSB/FreeRTOS libs are themselves INTERFACE-source
 # libs, so the entire program compiles into the executable -- exactly as the old flat

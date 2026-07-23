@@ -39,7 +39,7 @@ function(add_board_target PROJECT_NAME BOARD_NAME)
             -Og -g3 -fno-omit-frame-pointer -funwind-tables -fasynchronous-unwind-tables)
     endif()
 
-    # Embedded C++ policy (see docs/features/cpp-overhaul.md). Scoped to C++ TUs with a
+    # Embedded C++ policy (see docs/architecture.md). Scoped to C++ TUs with a
     # generator expression so the C sources don't warn on the C++-only flags.
     #   -fno-exceptions / -fno-rtti / -fno-threadsafe-statics : no unwinder, no RTTI, no
     #       hidden __cxa_guard lock on function-local statics (unacceptable on core1).

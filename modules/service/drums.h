@@ -90,7 +90,7 @@ class DrumEngine {
     bool changed_ = false;
 #if ORB_HIHAT_MODE >= 2
     // CC-keyed hi-hat openness, tracked on core0 from the pedal-position CC (see
-    // docs/features/hihat-mode.md). false = closed (pedal down); init closed so a
+    // the Hi-Hat-Mode wiki page). false = closed (pedal down); init closed so a
     // resting/unknown pedal maps to the default yellow-cymbal lane.
     bool hh_open_ = false;
 #endif

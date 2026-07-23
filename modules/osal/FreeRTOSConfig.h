@@ -2,7 +2,7 @@
  * FreeRTOSConfig.h for openrb-pico — RP2040 SMP port (FreeRTOS-Kernel V11.2.0,
  * portable/ThirdParty/GCC/RP2040).
  *
- * Topology (see PORTING.md / the FreeRTOS-SMP port plan):
+ * Topology (see docs/architecture.md / the FreeRTOS-SMP port plan):
  *   - SMP, both cores under the scheduler.
  *   - The PIO-USB host task is pinned to core1 and is the ONLY task allowed to run
  *     there, so core1 sees ~no context switches and PIO-USB bit timing is undisturbed.
