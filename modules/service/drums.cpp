@@ -21,7 +21,7 @@
  * identical by construction).
  *
  * Hi-hat: everything the alternate (CC-keyed) mode adds is gated on ORB_HIHAT_MODE
- * (inc/hihat_config.h, see docs/features/hihat-mode.md). The DEFAULT build (mode 0)
+ * (inc/hihat_config.h, see the Hi-Hat-Mode wiki page). The DEFAULT build (mode 0)
  * compiles all of it out and is byte-identical to the pure note-relay firmware.
  *
  * Threading: input_pkt_ is written on core0 ONLY (tick: lane bits + init_packet +

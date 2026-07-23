@@ -6,7 +6,7 @@
  * supplied by platform/<mcu>/ and selected in hal/platform.hpp. Binding is compile-time
  * (a concrete type, not a virtual interface) so there is ZERO runtime cost — one MCU per
  * build, a vtable indirection on a hot path would buy nothing. See docs/architecture/
- * modern-cpp.md.
+ * docs/architecture.md.
  *
  * Porting: implement these concepts for the new MCU under platform/<mcu>/ and point the
  * aliases in hal/platform.hpp at it. A static_assert (below, on the selected types) turns

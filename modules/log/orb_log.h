@@ -11,7 +11,7 @@
 // the calling core's ring with a SINGLE dlog producer call (one head store --
 // preserves dlog's batch-publish + drop-on-full discipline). Safe to call from
 // the timing-critical core1 PIO-USB task: only timerawl + cpuid are touched, no
-// locks, no sleep/board_millis (see docs/FREERTOS-PORT.md gotcha #2).
+// locks, no sleep/board_millis (see docs/architecture.md gotcha #2).
 //
 // Implementation: src/orb_log.cpp, modern C++ in `namespace orb::log`. The LOG_*
 // macros below are the public API and expand to orb_log_emit(...) -- a plain C++

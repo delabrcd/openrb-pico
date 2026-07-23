@@ -2,12 +2,12 @@
 
 // Compile-time configuration for the alternate (CC-keyed) hi-hat mode.
 //
-// See docs/features/hihat-mode.md for the full spec. This header is the
+// See the Hi-Hat-Mode wiki page for the full spec. This header is the
 // PHASE-1 COMPILE-TIME STOPGAP for the tunables: the spec's end state stores
-// these in the runtime configurator (docs/features/runtime-configurator.md,
-// still PROPOSED). Until that lands, the values below are baked in at build
-// time. When the runtime configurator ships, these #defines become its
-// defaults and the live values are read from persisted settings instead.
+// these in a future runtime configurator (proposed, not yet built). Until that
+// lands, the values below are baked in at build time. When the runtime
+// configurator ships, these #defines become its defaults and the live values
+// are read from persisted settings instead.
 //
 // EVERYTHING the feature adds is gated on ORB_HIHAT_MODE so the DEFAULT build
 // (mode 0) is byte-for-byte identical to the pure note-relay firmware.

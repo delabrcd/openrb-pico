@@ -5,7 +5,7 @@
  *
  * The byte tables below are USB WIRE DATA: the exact response payloads the emulated WLA
  * sends during announce/identify. They MUST stay byte-identical and live in flash, so --
- * per docs/architecture/modern-cpp.md "correctness over purity" -- they keep the original
+ * per docs/architecture.md "correctness over purity" -- they keep the original
  * `const std::uint8_t ORB_FLASH name[] = {...}` form (guaranteed flash placement,
  * byte-for-byte the original C). The C-isms removed are the (buffer,size) lookup struct
  * and the MAKE_ID macro: the identify table is now a constexpr std::array of
