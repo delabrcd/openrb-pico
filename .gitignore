@@ -1,3 +1,7 @@
-.cache 
+.cache
 build*
 bin/
+.mon/
+scratchpad/
+__pycache__/
+*.pyc

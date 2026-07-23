@@ -1,0 +1,70 @@
+name: dev container image
+
+# Builds .devcontainer/Dockerfile and publishes it to GHCR as
+# ghcr.io/<owner>/openrb-pico-dev. This image is the single source of truth for the
+# pinned arm-none-eabi 15.2.rel1 toolchain + build/debug tooling:
+#   - the firmware workflow (firmware.yml) runs its build INSIDE this image, so CI and
+#     local Docker builds share one toolchain (no drift);
+#   - VS Code / `devcontainer` users pull it prebuilt (see .devcontainer/devcontainer.json).
+#
+# Publishes on:
+#   - push to main that touches the Dockerfile or this workflow
+#   - manual dispatch (rebuild on demand, e.g. to refresh a floating dependency)
+#
+# Tags pushed: `latest` and the commit SHA.
+#
+# ONE-TIME SETUP: after the first successful run, make the GHCR package public
+# (GitHub -> your profile/org -> Packages -> openrb-pico-dev -> Package settings ->
+# Change visibility -> Public) so `devcontainer` pulls and fork-PR CI need no auth.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.devcontainer/Dockerfile'
+      - '.github/workflows/devcontainer-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/openrb-pico-dev
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Image metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,57 @@
+---
+# clang-tidy configuration for openrb-pico (RP2040 / Cortex-M0+ firmware).
+# Target language: C++23, -fno-exceptions, -fno-rtti.
+#
+# Philosophy: surface real bugs and useful modernizations; avoid pedantry and
+# embedded-hostile rules.  Disabled categories:
+#   - Domain-specific:    fuchsia, llvmlibc, altera, android, objc, linuxkernel, hicpp
+#   - Exception/RTTI:     any check that assumes exceptions or RTTI
+#   - Noisy for embedded: easily-swappable-parameters, magic-numbers, avoid-c-arrays,
+#                         trailing-return-type, use-nodiscard, identifier-length,
+#                         function-cognitive-complexity
+#   - SDK macro churn:    macro-parentheses, reserved-identifier
+
+Checks: >-
+  -*,
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
+  -bugprone-reserved-identifier,
+  -bugprone-signal-handler,
+  modernize-loop-convert,
+  modernize-redundant-void-arg,
+  modernize-replace-auto-ptr,
+  modernize-shrink-to-fit,
+  modernize-use-bool-literals,
+  modernize-use-default-member-init,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-use-noexcept,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-using,
+  performance-*,
+  readability-braces-around-statements,
+  readability-const-return-type,
+  readability-container-size-empty,
+  readability-delete-null-pointer,
+  readability-else-after-return,
+  readability-make-member-function-const,
+  readability-misleading-indentation,
+  readability-qualified-auto,
+  readability-redundant-control-flow,
+  readability-redundant-member-init,
+  readability-simplify-boolean-expr,
+
+# Treat no checks as errors by default; callers may override with -warnings-as-errors.
+WarningsAsErrors: ''
+
+# Only emit diagnostics for headers in our own source tree.
+# Warnings from pico-sdk / tinyusb / FreeRTOS / usb_midi_host headers are suppressed.
+HeaderFilterRegex: '^/work/modules/'
+
+FormatStyle: none

@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default / debug logging on (today's shipping values)",
+      "description": "Byte-identical to a plain `cmake -B build`: debug ON, level DEBUG, color OFF, hihat 0.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ORB_DEBUG": "ON",
+        "ORB_LOG_LEVEL": "DEBUG",
+        "ORB_LOG_COLOR": "OFF",
+        "ORB_HIHAT_MODE": "0"
+      }
+    },
+    {
+      "name": "debug",
+      "inherits": "default",
+      "displayName": "Debug (alias of default)"
+    },
+    {
+      "name": "release",
+      "displayName": "Release / logging compiled out",
+      "description": "Debug gate OFF: drops magic_enum reflection + all LOG_* (orb_debug.h forces the floor to NONE when OPENRB_DEBUG_ENABLED==0). Smaller image.",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "ORB_DEBUG": "OFF",
+        "ORB_LOG_LEVEL": "WARN",
+        "ORB_LOG_COLOR": "OFF",
+        "ORB_HIHAT_MODE": "0"
+      }
+    }
+  ]
+}

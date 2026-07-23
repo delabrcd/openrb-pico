@@ -1,0 +1,85 @@
+name: openrb-pico
+
+# One image (openrb-pico-dev, from .devcontainer/Dockerfile) used by four services
+# that differ only in runtime config:
+#   build   - one-shot, unprivileged: cross-compile the firmware.
+#   dbg     - one-shot, privileged + /dev: openocd flash / reset over SWD.
+#   monitor - long-running, privileged + /dev: owns the debug UART -> .mon/uart.log.
+#   dbgd    - long-running, privileged + /dev: owns the SWD probe; ONE persistent
+#             openocd with gdbservers (:3333 core0, :3334 core1) + command ports
+#             (:4444 telnet, :6666 tcl). flash/reset/gdb route through it so nothing
+#             spawns a competing openocd. See docs/DEBUGGING.md.
+# Privilege/device access is per-service, so builds stay unprivileged.
+# The scripts/ wrappers drive these; see BUILDING.md.
+
+x-base: &base
+  build:
+    context: .
+    dockerfile: .devcontainer/Dockerfile
+  image: openrb-pico-dev
+  working_dir: /work
+
+# Shared env for the UART-facing services.
+x-uart-env: &uart-env
+  ORB_TTY: "${ORB_TTY:-/dev/ttyACM0}"
+  ORB_BAUD: "${ORB_BAUD:-115200}"
+
+services:
+  build:
+    <<: *base
+    volumes:
+      - .:/work
+    profiles: [oneshot]          # not started by `up`; use `compose run --rm build ...`
+
+  mcp:
+    <<: *base
+    volumes:
+      - .:/work
+    environment:
+      PROJECT_ROOT: /work
+      # Which build tree's compile_commands.json clangd indexes. build-debug is the
+      # -Og debug variant (scripts/build.sh debug); override for build-release etc.
+      COMPILE_COMMANDS_DIR: "${ORB_CC_DIR:-/work/build-debug}"
+      CLANGD_PATH: /usr/bin/clangd
+      # --query-driver: let clangd interrogate the cross gcc for its system includes
+      # (mirrors .vscode/settings.json). --background-index writes into /work/.cache
+      # (gitignored). -header-insertion=never keeps it from suggesting #includes.
+      CLANGD_ARGS: "--query-driver=/usr/bin/arm-none-eabi-* --header-insertion=never --background-index"
+    command: ["clangd-mcp-server"]
+    profiles: [oneshot]          # not started by `up`; launched as a stdio MCP server
+                                 # via `compose run --rm --no-deps -T mcp` (see .mcp.json)
+
+  dbg:
+    <<: *base
+    privileged: true
+    volumes:
+      - .:/work
+      - /dev:/dev
+    environment: *uart-env
+    profiles: [oneshot]          # not started by `up`; use `compose run --rm dbg ...`
+
+  monitor:
+    <<: *base
+    privileged: true
+    volumes:
+      - .:/work
+      - /dev:/dev
+    environment: *uart-env
+    restart: unless-stopped       # long-running; auto-restarts
+    command: ["/work/docker/uart-monitor.sh"]
+
+  dbgd:
+    <<: *base
+    privileged: true
+    volumes:
+      - .:/work
+      - /dev:/dev
+    environment:
+      ORB_ADAPTER_SPEED: "${ORB_ADAPTER_SPEED:-4000}"
+    restart: unless-stopped       # long-running; owns the SWD probe
+    command: ["/work/docker/openocd-daemon.sh"]
+    ports:                        # also reachable in-container as dbgd:<port>
+      - "127.0.0.1:3333:3333"     # gdb server, rp2040.core0
+      - "127.0.0.1:3334:3334"     # gdb server, rp2040.core1
+      - "127.0.0.1:4444:4444"     # openocd telnet command port
+      - "127.0.0.1:6666:6666"     # openocd TCL-RPC command port
