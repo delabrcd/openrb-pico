@@ -7,15 +7,16 @@ Quick reference for working on the RP2040 firmware. Everything runs in Docker vi
 `openocd` by hand.
 
 - **Current architecture** — the layered C++23 design + the **FreeRTOS-SMP** runtime model
-  (core1 = the sole PIO-USB host task; core0 = USB-device + feature tasks):
-  [`docs/architecture.md`](docs/architecture.md). Read this first.
+  (core1 = the sole PIO-USB host task; core0 = USB-device + feature tasks): the
+  [Architecture](https://github.com/delabrcd/openrb-pico/wiki/Architecture) wiki page.
+  Read this first.
 - On-target debugging — the persistent `dbgd` daemon, **dual-core backtraces**, and
   FreeRTOS thread awareness: [`docs/DEBUGGING.md`](docs/DEBUGGING.md).
-- Design history (the core1 race, the 240 → 120 MHz decision, the FreeRTOS-SMP move) and
-  the warm-reset / hub-wedge recovery rationale live on the
-  [wiki](https://github.com/delabrcd/openrb-pico/wiki/Design-History). The deep
-  clock/patch investigation and **hardware testing caveats** are in the parent monorepo's
-  `../docs/usb-stack-saga.md` — read that before trusting any enumeration A/B result.
+- Design history (the core1 race, the 240 → 120 MHz decision, the FreeRTOS-SMP move), the
+  warm-reset / hub-wedge recovery rationale, the clock/patch A/B evidence, and the
+  **hardware testing caveats** live on the
+  [Design History](https://github.com/delabrcd/openrb-pico/wiki/Design-History) wiki page —
+  read the caveats before trusting any enumeration A/B result.
 
 ## Prerequisites
 
@@ -121,8 +122,8 @@ For tests away from the dev machine (no debug UART attached), the firmware mirro
 FAT file you pull and read on any PC. This replaced an earlier onboard-QSPI approach,
 which deadlocked: programming QSPI flash forces XIP off, so neither core can execute
 from flash during the op, which fights the timing-critical PIO-USB host. Writing to a
-USB drive never touches XIP, so that whole hazard is gone. (See the git history /
-`docs/usb-stack-saga.md` for the QSPI saga.)
+USB drive never touches XIP, so that whole hazard is gone. (See the git history for the
+QSPI saga.)
 
 How it works (`modules/log/usb_log.cpp`, FatFs sourced from the **vendored** TinyUSB at
 `external/tinyusb` — `PICO_TINYUSB_PATH/lib/fatfs/source`, the `FATFS_DIR` in
@@ -155,7 +156,7 @@ Caveats:
 - **SWD reset ≠ physical reset.** `reset.sh` does not power-cycle the CH334R hub and is
   not equivalent to the RESET button for USB-wedge behaviour. Don't trust enumeration
   pass/fail from an SWD reset — use a physical reset + the controller LED as ground
-  truth. Details in [`../docs/usb-stack-saga.md`](../docs/usb-stack-saga.md).
+  truth. Details on the [Design History](https://github.com/delabrcd/openrb-pico/wiki/Design-History#hardware-ab-testing-caveats) wiki page.
 - **Hub wedge.** After many resets / failed enumerations the hub accumulates bad state
   until a full **power cycle** — nothing enumerates until then. Power-cycle between A/B
   candidates; keep reset batches small.

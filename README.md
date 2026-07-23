@@ -22,7 +22,8 @@ your console. No proprietary dongle, no fragile workarounds.
 
 ## Get started in 3 steps
 
-You don't need to be a programmer. You'll need an OpenRB board (or an
+You don't need to be a programmer. You'll need an
+[OpenRB board](https://github.com/delabrcd/openrb-pico-hw) (or an
 [Adafruit Feather RP2040 USB Host](https://www.adafruit.com/product/5723)) and your drum
 kit.
 
@@ -33,8 +34,10 @@ kit.
 2. **Flash it:** hold the **BOOTSEL** button on the board, plug it into your computer with
    a USB cable, and drag the downloaded file onto the drive that appears (`RPI-RP2`). Done —
    it restarts on its own.
-3. **Plug in and play:** connect your drum kit, then connect the board to your Xbox with a
-   USB cable. Start the game and pick up your sticks.
+3. **Authenticate & play:** plug an official Xbox One / Series controller into the adapter
+   and connect the adapter to your Xbox. When the **light comes on**, you're authenticated —
+   swap the controller for your drum kit (or, on the OpenRB board's second port, just add
+   it alongside) and start playing.
 
 👉 **Step-by-step guide with photos and wiring:**
 [Feather setup on the wiki](https://github.com/delabrcd/openrb-pico/wiki/Feather-USB-Host).
@@ -51,8 +54,9 @@ Rock Band Wireless Legacy Adapter protocol).
 - 📖 **[Project wiki](https://github.com/delabrcd/openrb-pico/wiki)** — setup guides,
   features, and how it works.
 - 💬 **[Releases](https://github.com/delabrcd/openrb-pico/releases)** — download firmware.
+- 🔧 **[Hardware — openrb-pico-hw](https://github.com/delabrcd/openrb-pico-hw)** — the
+  open KiCad board design (schematic, PCB, 3D models).
 
-<sub>Developers: build-from-source, architecture, and contributor docs live in the
-[wiki](https://github.com/delabrcd/openrb-pico/wiki) and in
-[`AGENTS.md`](AGENTS.md) · [`BUILDING.md`](BUILDING.md) ·
-[`docs/architecture.md`](docs/architecture.md).</sub>
+<sub>Developers: start with [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md);
+build/flash in [`BUILDING.md`](BUILDING.md); the design lives in the
+[Architecture](https://github.com/delabrcd/openrb-pico/wiki/Architecture) wiki page.</sub>

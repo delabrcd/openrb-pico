@@ -1,10 +1,11 @@
 # AGENTS.md — openrb-pico contributor & agent guide
 
 Conventions any human or agent working in this repo must follow. This is the short,
-enforceable list; the deep rationale lives in
-[`docs/architecture.md`](docs/architecture.md) (authoritative architecture + the
-FreeRTOS-SMP runtime model) and [`BUILDING.md`](BUILDING.md). Porting/design history is on
-the [wiki](https://github.com/delabrcd/openrb-pico/wiki/Design-History).
+enforceable list; the deep rationale lives in the
+[Architecture](https://github.com/delabrcd/openrb-pico/wiki/Architecture) wiki page
+(authoritative architecture + the FreeRTOS-SMP runtime model) and
+[`BUILDING.md`](BUILDING.md). Porting/design history is on the
+[wiki](https://github.com/delabrcd/openrb-pico/wiki/Design-History).
 
 ## Target architecture — static dependency injection
 
