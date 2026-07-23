@@ -8,7 +8,7 @@
  * control block and creates it statically (no heap), the sibling of orb::osal::Task<N>
  * (inc/osal/task.hpp). It removes the "declare a uint8_t storage[] + a StaticQueue_t +
  * call xQueueCreateStatic + keep a QueueHandle_t" boilerplate that app_queues repeated
- * per queue (see docs/architecture.md D1).
+ * per queue (see the Architecture wiki page D1).
  *
  * Same discipline as Task: storage members are the FreeRTOS Static*_t buffers,
  * construction does nothing kernel-touching (trivial type, lands in BSS, no global-ctor

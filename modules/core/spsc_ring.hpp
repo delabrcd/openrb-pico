@@ -2,7 +2,7 @@
  * SpscRing<T, N> — a single-producer / single-consumer lock-free ring, header-only,
  * BSS-resident, no heap. It centralises the exact discipline currently hand-rolled in
  * three places (dlog.cpp's two per-core rings and usb_log.cpp's core0->core1 ring;
- * see docs/architecture.md D3).
+ * see the Architecture wiki page D3).
  *
  * The contract — reproduced verbatim from the proven C rings, do not weaken it:
  *   - N is a power of two; one slot is reserved so "full" is unambiguous (head+1==tail).

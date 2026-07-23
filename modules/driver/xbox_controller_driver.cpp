@@ -4,7 +4,7 @@
  * enumeration sequence, the claim->usbh_edpt_xfer->release dance (with release on every
  * error path), the IN-error-streak recovery signal and the non-blocking tuh_task_ext(0,
  * false) TX pumps are preserved byte-for-byte and timing-for-timing -- a change here breaks
- * enumeration on the PIO-USB core (see docs/architecture.md core1 rules).
+ * enumeration on the PIO-USB core (see the Architecture wiki page core1 rules).
  *
  * C seam: the TinyUSB host callbacks (xboxh_init/open/set_config/xfer_cb/close) are the
  * vendor seam, registered as C function pointers in host_drivers.cpp; the weak

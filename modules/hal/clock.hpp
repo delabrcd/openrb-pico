@@ -2,8 +2,8 @@
  * orb::hal — time interface (portable; NO SDK). The contract for a monotonic clock and a
  * busy-wait delay. Both are core-critical: the core1 PIO-USB path forbids any SDK call
  * that takes a spinlock or yields, so the clock must be lock-free and the delay must be a
- * pure busy-wait (never a scheduler sleep). See docs/architecture.md and the
- * core1 gotchas in docs/architecture.md.
+ * pure busy-wait (never a scheduler sleep). See the Architecture wiki page and the
+ * core1 gotchas in the Architecture wiki page.
  */
 #pragma once
 

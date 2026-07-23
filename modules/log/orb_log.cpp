@@ -17,7 +17,7 @@
 // SPSC ring exposed by dlog.h: snapshots the producer-side clock + core id, renders
 // one prefixed line into a stack buffer, and publishes it with a SINGLE dlog_printf
 // call. Core1-safe: only timer_hw->timerawl + sio_hw->cpuid are touched, no locks,
-// no sleep (docs/architecture.md gotcha #2).
+// no sleep (the Architecture wiki page gotcha #2).
 //
 // dlog_printf / dlog_init / dlog_set_sink (dlog.h) and usb_log_write (usb_log.h) are
 // producer seams into the dlog SPSC layer -- called directly; that is the boundary to

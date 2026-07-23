@@ -19,7 +19,7 @@
 #define DLOG_SIZE 16384u  // per ring; must be a power of two
 
 // Debug UART handle — emplaced by dlog_init(). std::optional so uart_init +
-// gpio_set_function run only after the system clock is stable (docs/architecture.md lifetime).
+// gpio_set_function run only after the system clock is stable (the Architecture wiki page lifetime).
 static std::optional<orb::hal::Uart> s_dlog_uart;
 
 // One ring per core (SpscRing<char,N>, inc/spsc_ring.hpp). Each core produces only into

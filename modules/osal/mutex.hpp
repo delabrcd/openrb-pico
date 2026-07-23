@@ -8,7 +8,7 @@
  * mutex's control block (StaticSemaphore_t) and creates it statically (no heap), plus a
  * scope-guard that take()s on construction and give()s on destruction. Sibling of
  * orb::osal::Task<N> (inc/osal/task.hpp), orb::osal::Queue<T,Depth> (inc/osal/queue.hpp)
- * and orb::osal::Timer (inc/osal/timer.hpp); see docs/architecture.md D1.
+ * and orb::osal::Timer (inc/osal/timer.hpp); see the Architecture wiki page D1.
  *
  * Same discipline as the other wrappers: the storage member is the FreeRTOS
  * StaticSemaphore_t buffer, construction does nothing kernel-touching (constant-initialized

@@ -1,6 +1,6 @@
 /*
  * orb_c_api.h — the single, permanent C/C++ boundary seam (see
- * docs/architecture.md D2).
+ * the Architecture wiki page D2).
  *
  * TinyUSB, FreeRTOS, the Pico SDK and FatFs call INTO this firmware through a fixed set
  * of C-linkage symbols (tu*_cb / usbd_app_driver_get_cb / disk_* / FreeRTOS hooks /
