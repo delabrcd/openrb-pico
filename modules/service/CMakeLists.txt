@@ -8,7 +8,7 @@
 #
 # INTERFACE library (see modules/log/CMakeLists.txt). Downward module edges: core/protocol
 # /osal/log + board (the per-board midi.cpp needs orb_bsp.h). As of the P3 step in
-# docs/architecture.md, guitar.cpp and drums.cpp are USB-stack-free -- their
+# the Architecture wiki page, guitar.cpp and drums.cpp are USB-stack-free -- their
 # extern "C" host-callback seams (and the vendor operations they used) moved to
 # modules/driver/ (guitar_hid_driver.cpp, drums_midi_seam.cpp), which links this target.
 # midi.cpp still pokes hardware/* and the Pico SDK directly (board UART), resolved through
