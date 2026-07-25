@@ -56,6 +56,9 @@ Rock Band Wireless Legacy Adapter protocol).
 - 💬 **[Releases](https://github.com/delabrcd/openrb-pico/releases)** — download firmware.
 - 🔧 **[Hardware — openrb-pico-hw](https://github.com/delabrcd/openrb-pico-hw)** — the
   open KiCad board design (schematic, PCB, 3D models).
+- 🧰 **[Arduino version — openrb-instruments](https://github.com/delabrcd/openrb-instruments)** —
+  the original Leonardo-based adapter this project was rewritten from. Worth a look if you
+  already own an Arduino Leonardo and USB Host Shield.
 
 <sub>Developers: start with [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md);
 build/flash in [`BUILDING.md`](BUILDING.md); the design lives in the
